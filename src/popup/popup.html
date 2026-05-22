@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OrgonLink</title>
+
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0c0e0f;
+    --bg2:       #131617;
+    --bg3:       #1a1e20;
+    --bg4:       #222729;
+    --accent:    #4fffb0;
+    --accent2:   #00e887;
+    --accent-dim:#1a3d2e;
+    --red:       #ff5252;
+    --red-dim:   #3d1a1a;
+    --amber:     #ffb547;
+    --amber-dim: #3d2a10;
+    --text:      #eef2f0;
+    --text2:     #8a9490;
+    --text3:     #4a5450;
+    --border:    #1e2426;
+    --border2:   #2a3034;
+    --radius:    12px;
+    --radius-sm: 8px;
+    --shadow:    0 8px 32px rgba(0,0,0,.6);
+  }
+
+  html, body {
+    width: 380px;
+    height: 600px;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', 'SF Pro Display', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #app {
+    width: 380px;
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ── Screens ── */
+  .screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(20px);
+    transition: opacity .22s ease, transform .22s ease;
+  }
+  .screen.active {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateX(0);
+  }
+  .screen.slide-out {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+
+  /* ── Scrollable content area ── */
+  .scroll-area {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border2) transparent;
+  }
+  .scroll-area::-webkit-scrollbar { width: 3px; }
+  .scroll-area::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  /* ── Typography ── */
+  .mono { font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace; }
+  .label { font-size: 11px; color: var(--text2); letter-spacing: .06em; text-transform: uppercase; }
+  .muted { color: var(--text2); }
+  .accent { color: var(--accent); }
+  .red { color: var(--red); }
+  .amber { color: var(--amber); }
+
+  /* ── Buttons ── */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    border: none; border-radius: var(--radius-sm); cursor: pointer;
+    font-family: 'Segoe UI', 'SF Pro Display', system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 600;
+    transition: all .15s ease;
+    padding: 0 20px; height: 44px;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn-primary {
+    background: var(--accent); color: #0a1a12;
+    width: 100%;
+  }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-secondary {
+    background: var(--bg3); color: var(--text);
+    border: 1px solid var(--border2);
+    width: 100%;
+  }
+  .btn-secondary:hover { background: var(--bg4); border-color: var(--text3); }
+  .btn-ghost {
+    background: transparent; color: var(--text2);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--bg3); color: var(--text); }
+  .btn-icon {
+    width: 40px; height: 40px; padding: 0;
+    background: var(--bg3); color: var(--text2);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+  .btn-icon:hover { color: var(--text); border-color: var(--border2); }
+  .btn-danger {
+    background: var(--red-dim); color: var(--red);
+    border: 1px solid #5a2020; width: 100%;
+  }
+  .btn-danger:hover { background: #5a2020; }
+
+  /* ── Inputs ── */
+  .input-group { display: flex; flex-direction: column; gap: 6px; }
+  .input-label { font-size: 12px; color: var(--text2); font-weight: 600; letter-spacing: .03em; }
+  input[type=text], input[type=password], textarea {
+    background: var(--bg3); border: 1px solid var(--border2);
+    color: var(--text); border-radius: var(--radius-sm);
+    font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace; font-size: 13px;
+    padding: 11px 14px; outline: none; width: 100%;
+    transition: border-color .15s;
+  }
+  input[type=text]:focus, input[type=password]:focus, textarea:focus {
+    border-color: var(--accent);
+  }
+  input::placeholder, textarea::placeholder { color: var(--text3); }
+  textarea { resize: none; min-height: 80px; line-height: 1.5; }
+
+  /* ── Cards ── */
+  .card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px;
+  }
+  .card-sm {
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: var(--radius-sm); padding: 12px 14px;
+  }
+
+  /* ── Header ── */
+  .top-bar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .top-bar-title {
+    font-size: 15px; font-weight: 700;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .logo-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+  }
+
+  /* ── Network pill ── */
+  .net-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: 20px; padding: 4px 10px;
+    font-size: 11px; color: var(--text2); cursor: pointer;
+  }
+  .net-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  /* ── Bottom nav ── */
+  .bottom-nav {
+    display: flex; border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .nav-item {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 10px 0 8px;
+    cursor: pointer; color: var(--text3);
+    font-size: 10px; font-weight: 600; gap: 4px;
+    letter-spacing: .04em; text-transform: uppercase;
+    transition: color .15s;
+    border: none; background: none;
+  }
+  .nav-item svg { width: 20px; height: 20px; stroke-width: 1.8; }
+  .nav-item.active { color: var(--accent); }
+  .nav-item:not(.active):hover { color: var(--text2); }
+
+  /* ── Balance display ── */
+  .balance-hero {
+    text-align: center; padding: 28px 20px 20px;
+  }
+  .balance-amount {
+    font-size: 42px; font-weight: 700;
+    font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace;
+    color: var(--text); letter-spacing: -.02em;
+    line-height: 1;
+  }
+  .balance-usd { font-size: 16px; color: var(--text2); margin-top: 6px; }
+  .balance-change {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; margin-top: 4px;
+    padding: 3px 10px; border-radius: 20px;
+  }
+  .balance-change.up { background: rgba(79,255,176,.1); color: var(--accent); }
+  .balance-change.down { background: rgba(255,82,82,.1); color: var(--red); }
+
+  /* ── Address chip ── */
+  .address-chip {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: 30px; padding: 6px 12px 6px 8px;
+    cursor: pointer; margin: 0 auto; width: fit-content;
+    transition: border-color .15s;
+  }
+  .address-chip:hover { border-color: var(--text3); }
+  .address-avatar {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent) 0%, #00b8ff 100%);
+    flex-shrink: 0;
+  }
+  .address-text { font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace; font-size: 12px; color: var(--text2); }
+
+  /* ── Action buttons row ── */
+  .action-row {
+    display: flex; gap: 10px; padding: 16px;
+  }
+  .action-btn {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; gap: 8px;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 14px 8px;
+    cursor: pointer; color: var(--text2);
+    font-size: 12px; font-weight: 600;
+    transition: all .15s; letter-spacing: .03em;
+  }
+  .action-btn svg { width: 22px; height: 22px; stroke-width: 1.8; }
+  .action-btn:hover { background: var(--bg4); color: var(--text); border-color: var(--text3); }
+  .action-btn.send:hover svg { stroke: var(--accent); }
+  .action-btn.receive:hover svg { stroke: #00b8ff; }
+  .action-btn.swap:hover svg { stroke: var(--amber); }
+
+  /* ── Token list ── */
+  .token-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 16px; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background .12s;
+  }
+  .token-row:last-child { border-bottom: none; }
+  .token-row:hover { background: var(--bg3); }
+  .token-icon {
+    width: 38px; height: 38px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700; flex-shrink: 0;
+    font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace;
+  }
+  .token-icon.orgon { background: var(--accent-dim); color: var(--accent); }
+  .token-icon.orc20 { background: #1a2040; color: #6080ff; }
+  .token-info { flex: 1; min-width: 0; }
+  .token-name { font-size: 14px; font-weight: 600; }
+  .token-sub { font-size: 12px; color: var(--text2); margin-top: 1px; }
+  .token-right { text-align: right; }
+  .token-amount { font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace; font-size: 14px; font-weight: 500; }
+  .token-usd { font-size: 12px; color: var(--text2); margin-top: 1px; }
+
+  /* ── TX history ── */
+  .tx-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background .12s;
+  }
+  .tx-row:hover { background: var(--bg3); }
+  .tx-icon {
+    width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .tx-icon.out { background: var(--red-dim); color: var(--red); }
+  .tx-icon.in  { background: var(--accent-dim); color: var(--accent); }
+  .tx-icon.contract { background: var(--amber-dim); color: var(--amber); }
+  .tx-info { flex: 1; min-width: 0; }
+  .tx-type { font-size: 13px; font-weight: 600; }
+  .tx-addr { font-size: 11px; color: var(--text2); font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tx-right { text-align: right; flex-shrink: 0; }
+  .tx-amount { font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace; font-size: 13px; font-weight: 500; }
+  .tx-date { font-size: 11px; color: var(--text2); margin-top: 2px; }
+  .tx-status { display: inline-block; font-size: 10px; font-weight: 600;
+    padding: 2px 7px; border-radius: 4px; margin-top: 3px; }
+  .tx-status.confirmed { background: var(--accent-dim); color: var(--accent); }
+  .tx-status.pending { background: var(--amber-dim); color: var(--amber); }
+  .tx-status.failed { background: var(--red-dim); color: var(--red); }
+
+  /* ── Section header ── */
+  .section-hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px 8px;
+  }
+  .section-title { font-size: 12px; font-weight: 600; color: var(--text2);
+    letter-spacing: .06em; text-transform: uppercase; }
+
+  /* ── Send form ── */
+  .send-max {
+    font-size: 11px; color: var(--accent); cursor: pointer; font-weight: 600;
+  }
+  .send-max:hover { text-decoration: underline; }
+  .amount-input-wrap { position: relative; }
+  .amount-suffix {
+    position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+    font-size: 13px; color: var(--text2); font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace;
+    pointer-events: none;
+  }
+  .fee-row {
+    display: flex; justify-content: space-between;
+    font-size: 12px; padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .fee-row:last-of-type { border-bottom: none; }
+
+  /* ── Setup / Welcome ── */
+  .setup-hero {
+    padding: 40px 24px 20px; text-align: center;
+  }
+  .setup-logo {
+    width: 64px; height: 64px; border-radius: 20px;
+    background: var(--accent-dim); border: 1px solid rgba(79,255,176,.2);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 20px;
+  }
+  .setup-logo svg { width: 36px; height: 36px; stroke: var(--accent); stroke-width: 1.5; }
+  .setup-title { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+  .setup-sub { font-size: 14px; color: var(--text2); line-height: 1.6; }
+  .setup-form { padding: 0 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* ── Mnemonic grid ── */
+  .mnemonic-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  .mnemonic-word {
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: var(--radius-sm); padding: 8px 10px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .mnemonic-word .num { font-size: 10px; color: var(--text3); min-width: 14px; }
+  .mnemonic-word .word { font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace; font-size: 12px; color: var(--text); }
+
+  /* ── QR placeholder ── */
+  .qr-wrap {
+    width: 160px; height: 160px; margin: 0 auto;
+    background: white; border-radius: var(--radius);
+    display: flex; align-items: center; justify-content: center;
+    padding: 12px;
+  }
+  .qr-inner {
+    width: 100%; height: 100%;
+    background: repeating-linear-gradient(
+      0deg, #000 0px, #000 4px, transparent 4px, transparent 8px
+    ),
+    repeating-linear-gradient(
+      90deg, #000 0px, #000 4px, transparent 4px, transparent 8px
+    );
+    opacity: .15;
+    border-radius: 4px;
+  }
+
+  /* ── Settings rows ── */
+  .settings-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background .12s;
+  }
+  .settings-row:hover { background: var(--bg3); }
+  .settings-row-icon {
+    width: 36px; height: 36px; border-radius: var(--radius-sm);
+    background: var(--bg3); display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .settings-row-icon svg { width: 18px; height: 18px; stroke-width: 1.8; color: var(--text2); }
+  .settings-row-text { flex: 1; }
+  .settings-row-title { font-size: 13px; font-weight: 600; }
+  .settings-row-sub { font-size: 12px; color: var(--text2); margin-top: 1px; }
+  .settings-row-arrow svg { width: 16px; height: 16px; color: var(--text3); }
+
+  /* ── Approval ── */
+  .approval-site {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: var(--radius); padding: 12px 14px; margin-bottom: 14px;
+  }
+  .site-icon {
+    width: 36px; height: 36px; border-radius: var(--radius-sm);
+    background: var(--accent-dim); display: flex;
+    align-items: center; justify-content: center;
+    font-size: 16px;
+  }
+
+  /* ── Lock screen ── */
+  .lock-wrap { flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 24px; gap: 24px; }
+  .lock-icon {
+    width: 72px; height: 72px; border-radius: 24px;
+    background: var(--accent-dim); border: 1px solid rgba(79,255,176,.15);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .lock-icon svg { width: 36px; height: 36px; stroke: var(--accent); stroke-width: 1.5; }
+
+  /* ── Divider ── */
+  .divider { height: 1px; background: var(--border); margin: 4px 0; }
+  .divider-text {
+    display: flex; align-items: center; gap: 10px;
+    margin: 8px 0;
+  }
+  .divider-text::before, .divider-text::after {
+    content: ''; flex: 1; height: 1px; background: var(--border2);
+  }
+  .divider-text span { font-size: 11px; color: var(--text3); }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed; bottom: 70px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--bg4); border: 1px solid var(--border2);
+    color: var(--text); font-size: 13px; padding: 9px 18px;
+    border-radius: 30px; opacity: 0; transition: all .25s;
+    pointer-events: none; white-space: nowrap; z-index: 100;
+    box-shadow: var(--shadow);
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  #toast.success { border-color: var(--accent); color: var(--accent); }
+  #toast.error { border-color: var(--red); color: var(--red); }
+
+  /* ── Back button ── */
+  .back-btn {
+    display: flex; align-items: center; gap: 6px;
+    background: none; border: none; cursor: pointer;
+    color: var(--text2); font-size: 13px; font-family: 'Segoe UI', 'SF Pro Display', system-ui, -apple-system, sans-serif;
+    padding: 0; transition: color .15s;
+  }
+  .back-btn:hover { color: var(--text); }
+  .back-btn svg { width: 16px; height: 16px; }
+
+  /* ── Animations ── */
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
+  .loading { animation: pulse 1.4s ease infinite; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { animation: spin .8s linear infinite; display: inline-block; }
+
+  /* ── Padding helpers ── */
+  .p16 { padding: 16px; }
+  .px16 { padding-left: 16px; padding-right: 16px; }
+  .py8 { padding-top: 8px; padding-bottom: 8px; }
+  .gap8 { gap: 8px; }
+  .gap12 { gap: 12px; }
+  .gap16 { gap: 16px; }
+  .flex { display: flex; }
+  .flex-col { flex-direction: column; }
+  .flex-center { align-items: center; }
+  .justify-between { justify-content: space-between; }
+  .w100 { width: 100%; }
+  .mt4 { margin-top: 4px; }
+  .mt8 { margin-top: 8px; }
+  .mt12 { margin-top: 12px; }
+  .mt16 { margin-top: 16px; }
+  .mt20 { margin-top: 20px; }
+  .mb8  { margin-bottom: 8px; }
+  .mb12 { margin-bottom: 12px; }
+  .mb16 { margin-bottom: 16px; }
+  .text-center { text-align: center; }
+  .fs12 { font-size: 12px; }
+  .fs13 { font-size: 13px; }
+  .fs11 { font-size: 11px; }
+  .fw600 { font-weight: 600; }
+  .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Network selector ── */
+  .network-option {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; cursor: pointer; border-bottom: 1px solid var(--border);
+    transition: background .12s;
+  }
+  .network-option:hover { background: var(--bg3); }
+  .network-option.selected .net-check { opacity: 1; }
+  .net-check { opacity: 0; color: var(--accent); }
+  .net-check svg { width: 16px; height: 16px; }
+
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: WELCOME (no wallet)
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-welcome">
+  <div class="scroll-area">
+    <div class="setup-hero">
+      <div class="setup-logo">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 7v5c0 5.25 4.25 10.15 10 11 5.75-.85 10-5.75 10-11V7L12 2z" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M9 12l2 2 4-4" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="setup-title">OrgonLink</div>
+      <div class="setup-sub">Безопасный кошелёк для блокчейна Orgon. Ваши ключи — ваши средства.</div>
+    </div>
+    <div class="setup-form">
+      <button class="btn btn-primary" id="btn-to-create">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+        Создать новый кошелёк
+      </button>
+      <div class="divider-text"><span>или</span></div>
+      <button class="btn btn-secondary" id="btn-to-import">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+        Импортировать кошелёк
+      </button>
+      <div style="text-align:center; margin-top: 8px;">
+        <span class="fs11 muted">Импортируйте через seed-фразу или приватный ключ</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: CREATE WALLET
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-create">
+  <div class="top-bar">
+    <button class="back-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Новый кошелёк</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area">
+    <div id="create-step-1" class="p16">
+      <div class="card mb16">
+        <div class="flex flex-center gap8 mb12">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <span class="fw600 amber">Сохраните seed-фразу</span>
+        </div>
+        <div class="fs12 muted" style="line-height:1.6;">
+          Запишите 12 слов в правильном порядке. Без них невозможно восстановить кошелёк. Никому не передавайте seed-фразу.
+        </div>
+      </div>
+
+      <div class="mnemonic-grid mb16" id="mnemonic-display">
+        <!-- заполняется JS -->
+      </div>
+
+      <button class="btn btn-ghost w100 mb12" id="btn-copy-mnemonic" style="font-size:12px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        Скопировать
+      </button>
+
+      <div class="input-group mb16">
+        <label class="input-label">Пароль для шифрования</label>
+        <input type="password" id="create-password" placeholder="Минимум 8 символов">
+      </div>
+      <div class="input-group mb16">
+        <label class="input-label">Подтвердите пароль</label>
+        <input type="password" id="create-password2" placeholder="Повторите пароль">
+      </div>
+
+      <button class="btn btn-primary" id="btn-create-wallet">
+        Создать кошелёк
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: IMPORT WALLET
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-import">
+  <div class="top-bar">
+    <button class="back-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Импорт кошелька</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area p16">
+    <div class="flex gap8 mb16">
+      <button class="btn btn-secondary" id="import-tab-seed" style="flex:1;height:36px;font-size:12px;">Seed-фраза</button>
+      <button class="btn btn-ghost" id="import-tab-key" style="flex:1;height:36px;font-size:12px;">Приватный ключ</button>
+    </div>
+
+    <div id="import-seed-panel">
+      <div class="input-group mb14">
+        <label class="input-label">Seed-фраза (12 или 24 слова)</label>
+        <textarea id="import-mnemonic" placeholder="Введите слова через пробел..."></textarea>
+      </div>
+    </div>
+    <div id="import-key-panel" style="display:none;">
+      <div class="input-group mb14">
+        <label class="input-label">Приватный ключ (hex)</label>
+        <input type="password" id="import-privkey" placeholder="64 hex символа...">
+      </div>
+    </div>
+
+    <div class="input-group mb14">
+      <label class="input-label">Пароль</label>
+      <input type="password" id="import-password" placeholder="Новый пароль кошелька">
+    </div>
+    <div class="input-group mb16">
+      <label class="input-label">Подтвердите пароль</label>
+      <input type="password" id="import-password2" placeholder="Повторите пароль">
+    </div>
+    <button class="btn btn-primary" id="btn-import-wallet">Импортировать</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: LOCK
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-lock">
+  <div class="top-bar">
+    <div class="top-bar-title">
+      <div class="logo-dot"></div>
+      OrgonLink
+    </div>
+    <div class="net-pill">
+      <div class="net-dot"></div>
+      <span id="lock-net-name">Mainnet</span>
+    </div>
+  </div>
+  <div class="lock-wrap">
+    <div class="lock-icon">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="3" y="11" width="18" height="11" rx="2" stroke-linecap="round"/>
+        <path d="M7 11V7a5 5 0 0110 0v4" stroke-linecap="round"/>
+      </svg>
+    </div>
+    <div class="text-center">
+      <div style="font-size:18px;font-weight:700;margin-bottom:6px;">Кошелёк заблокирован</div>
+      <div class="muted fs12">Введите пароль для доступа</div>
+    </div>
+    <div class="w100">
+      <div class="input-group mb12">
+        <input type="password" id="unlock-password" placeholder="Пароль">
+      </div>
+      <button class="btn btn-primary" id="btn-unlock">Разблокировать</button>
+    </div>
+    <button class="back-btn muted fs12">
+      Восстановить кошелёк
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: MAIN WALLET
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-wallet">
+
+  <!-- Top bar -->
+  <div class="top-bar">
+    <div class="top-bar-title">
+      <div class="logo-dot"></div>
+      OrgonLink
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div class="net-pill">
+        <div class="net-dot"></div>
+        <span id="wallet-net-name">Mainnet</span>
+      </div>
+      <button class="btn-icon" id="btn-lock" title="Заблокировать">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Tab content -->
+  <div class="scroll-area" id="wallet-tab-content">
+    <!-- filled by showWalletTab -->
+  </div>
+
+  <!-- Bottom nav -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" id="nav-assets">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3" stroke-linecap="round"/></svg>
+      Активы
+    </button>
+    <button class="nav-item" id="nav-history">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12a9 9 0 109-9M3 12V6M3 12H9" stroke-linecap="round"/></svg>
+      История
+    </button>
+    <button class="nav-item" id="nav-dapps">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+      dApps
+    </button>
+    <button class="nav-item" id="nav-settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+      Настройки
+    </button>
+  </nav>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: SEND
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-send">
+  <div class="top-bar">
+    <button class="back-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Отправить ORGON</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area p16">
+
+    <div class="card mb16">
+      <div class="label mb8">Отправитель</div>
+      <div class="flex flex-center gap8">
+        <div class="address-avatar" style="width:28px;height:28px;flex-shrink:0;border-radius:50%;background:linear-gradient(135deg,var(--accent),#00b8ff)"></div>
+        <span class="mono fs12 truncate" id="send-from-addr">—</span>
+      </div>
+      <div class="flex justify-between mt8" style="border-top:1px solid var(--border);padding-top:8px;">
+        <span class="fs12 muted">Баланс</span>
+        <span class="mono fs12 accent" id="send-balance">— ORGON</span>
+      </div>
+    </div>
+
+    <div class="input-group mb14">
+      <div class="flex justify-between flex-center">
+        <label class="input-label">Получатель</label>
+      </div>
+      <input type="text" id="send-to" placeholder="Адрес получателя...">
+    </div>
+
+    <div class="input-group mb14">
+      <div class="flex justify-between flex-center">
+        <label class="input-label">Сумма</label>
+        <span class="send-max" id="btn-send-max">Весь баланс</span>
+      </div>
+      <div class="amount-input-wrap">
+        <input type="text" id="send-amount" placeholder="0.000000" style="padding-right:70px;">
+        <span class="amount-suffix">ORGON</span>
+      </div>
+    </div>
+
+    <div class="input-group mb16">
+      <label class="input-label">Заметка (опционально)</label>
+      <input type="text" id="send-memo" placeholder="Необязательно...">
+    </div>
+
+    <div class="card-sm mb16">
+      <div class="fee-row"><span class="muted">Комиссия (Bandwidth)</span><span class="mono fs12">≈ 0.1 ORGON</span></div>
+      <div class="fee-row"><span class="muted">Время подтверждения</span><span class="fs12 accent">~3 сек</span></div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-send-tx">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      Отправить
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: RECEIVE
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-receive">
+  <div class="top-bar">
+    <button class="back-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Получить</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area p16">
+    <div class="card text-center mb16">
+      <div class="label mb16">Ваш Orgon адрес</div>
+      <div class="qr-wrap mb16">
+        <canvas id="qr-canvas" width="136" height="136"></canvas>
+      </div>
+      <div class="mono fs12 muted mb12" id="receive-address" style="word-break:break-all;line-height:1.6;">—</div>
+      <button class="btn btn-secondary" style="height:38px;font-size:13px;" id="btn-copy-address">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        Скопировать адрес
+      </button>
+    </div>
+    <div class="card-sm">
+      <div class="flex flex-center gap8 mb6">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span class="fs12 fw600">Только для сети Orgon</span>
+      </div>
+      <div class="fs12 muted" style="line-height:1.5;">
+        Отправляйте на этот адрес только токены ORGON, oRC-10 и oRC-20. Другие сети не поддерживаются.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: TX DETAIL
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-tx-detail">
+  <div class="top-bar">
+    <button class="back-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Транзакция</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area" id="tx-detail-content"></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: APPROVAL (dApp запрос)
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-approval">
+  <div class="top-bar">
+    <div class="top-bar-title" style="font-size:13px;">
+      <div class="logo-dot"></div>
+      Запрос подключения
+    </div>
+  </div>
+  <div class="scroll-area p16">
+    <div class="approval-site">
+      <div class="site-icon">🌐</div>
+      <div>
+        <div class="fw600 fs13" id="approval-origin">—</div>
+        <div class="fs11 muted mt4">Запрашивает подключение к кошельку</div>
+      </div>
+    </div>
+
+    <div class="card mb14">
+      <div class="label mb8">Будет предоставлен доступ</div>
+      <div class="flex flex-center gap8 py8" style="border-bottom:1px solid var(--border);">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        <span class="fs13">Просмотр адреса кошелька</span>
+      </div>
+      <div class="flex flex-center gap8 py8" style="border-bottom:1px solid var(--border);">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+        <span class="fs13">Запрос подписи транзакций</span>
+      </div>
+      <div class="flex flex-center gap8 py8">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        <span class="fs13 muted">Не имеет доступа к ключам</span>
+      </div>
+    </div>
+
+    <div class="card-sm mb16">
+      <div class="label mb6">Аккаунт</div>
+      <div class="flex flex-center gap8">
+        <div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,var(--accent),#00b8ff);flex-shrink:0;"></div>
+        <span class="mono fs12 truncate" id="approval-address">—</span>
+      </div>
+    </div>
+
+    <div class="flex gap8">
+      <button class="btn btn-secondary" style="flex:1;" id="btn-reject-approval">Отклонить</button>
+      <button class="btn btn-primary" style="flex:1;" id="btn-approve-approval">Подключить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: TX APPROVAL
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-tx-approval">
+  <div class="top-bar">
+    <div class="top-bar-title" style="font-size:13px;">
+      <div class="logo-dot"></div>
+      Подтверждение транзакции
+    </div>
+  </div>
+  <div class="scroll-area p16">
+    <div class="approval-site mb14">
+      <div class="site-icon">⚡</div>
+      <div>
+        <div class="fw600 fs13" id="tx-approval-origin">—</div>
+        <div class="fs11 muted mt4">Запрашивает подпись транзакции</div>
+      </div>
+    </div>
+
+    <div class="card mb14" id="tx-approval-details">
+      <!-- filled by JS -->
+    </div>
+
+    <div class="card-sm mb16">
+      <div class="fee-row"><span class="muted">Комиссия</span><span class="mono fs12">≈ 0.1 ORGON</span></div>
+      <div class="fee-row"><span class="muted">Fee Limit</span><span class="mono fs12 amber" id="tx-fee-limit">—</span></div>
+    </div>
+
+    <div class="flex gap8">
+      <button class="btn btn-danger" style="flex:1;" id="btn-reject-tx">Отклонить</button>
+      <button class="btn btn-primary" style="flex:1;" id="btn-approve-tx">Подтвердить</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: NETWORK SELECTOR
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-network">
+  <div class="top-bar">
+    <button class="back-btn" id="btn-go-back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Выбор сети</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area">
+    <div class="network-option selected" id="net-mainnet">
+      <div class="net-dot" style="width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0;"></div>
+      <div style="flex:1;">
+        <div class="fw600 fs13">Orgon Mainnet</div>
+        <div class="fs11 muted mono mt4">tr80.orgon.space</div>
+      </div>
+      <div class="net-check">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+    </div>
+    <div class="network-option" id="net-testnet">
+      <div class="net-dot" style="width:8px;height:8px;border-radius:50%;background:var(--amber);flex-shrink:0;"></div>
+      <div style="flex:1;">
+        <div class="fw600 fs13">Quasar Testnet</div>
+        <div class="fs11 muted mono mt4">api.quasar.orgonscan.org</div>
+      </div>
+      <div class="net-check">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+</div><!-- #app -->
+
+<script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "name": "orgonlink",
+  "version": "0.1.0",
+  "description": "OrgonLink — браузерный кошелёк для блокчейна Orgon",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c rollup.config.js",
+    "dev": "rollup -c rollup.config.js --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.8.0",
+    "@noble/secp256k1": "^2.3.0",
+    "@scure/bip32": "^1.7.0",
+    "@scure/bip39": "^1.6.0",
+    "bs58check": "^4.0.0",
+    "orgonweb": "^6.0.3",
+    "qrcode": "^1.5.4",
+    "qrcode-generator": "^2.0.4"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^26.0.3",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^15.3.1",
+    "@rollup/plugin-terser": "^1.0.0",
+    "rollup": "^4.60.4",
+    "rollup-plugin-polyfill-node": "^0.13.0"
+  },
+  "notes": {
+    "crypto": "Используем @noble/* — zero-dependency, audited, работают в MV3 Service Worker без WebAssembly",
+    "build": "Rollup бандлит всё в один файл на модуль (background, content, provider)",
+    "address_prefix": "TODO: уточнить у команды Orgon байт-префикс адреса (Tron=0x41, Ethereum=0x00)",
+    "rpc_url": "TODO: уточнить URL Full Node Orgon",
+    "chain_id": "TODO: уточнить chainId Orgon Mainnet/Testnet"
+  }
+}

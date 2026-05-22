@@ -1,0 +1,71 @@
+{
+  "manifest_version": 3,
+  "name": "OrgonLink",
+  "version": "0.1.0",
+  "description": "OrgonLink Wallet \u2014 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u043d\u044b\u0439 \u043a\u043e\u0448\u0435\u043b\u0451\u043a \u0434\u043b\u044f \u0431\u043b\u043e\u043a\u0447\u0435\u0439\u043d\u0430 Orgon",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "alarms",
+    "tabs",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://*/*",
+    "http://localhost/*"
+  ],
+  "background": {
+    "service_worker": "dist/background/service_worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*/*",
+        "http://localhost/*"
+      ],
+      "js": [
+        "dist/provider/orgonWeb.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://*/*",
+        "http://localhost/*"
+      ],
+      "js": [
+        "dist/content/bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "ISOLATED"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dist/provider/orgonWeb.js"
+      ],
+      "matches": [
+        "https://*/*",
+        "http://localhost/*"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self';"
+  }
+}
