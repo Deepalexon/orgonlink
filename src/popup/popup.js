@@ -2471,6 +2471,34 @@ function bindEvents() {
   on('btn-reject-tx',       'click', rejectTx);
   on('btn-approve-tx',      'click', approveTx);
 
+  // ── Export Key ──
+  on('btn-back-from-export-key', 'click', () => showScreen('screen-wallet'));
+  on('btn-reveal-key', 'click', revealPrivateKey);
+  on('btn-copy-privkey', 'click', () => {
+    const val = document.getElementById('export-key-value')?.textContent;
+    if (val && val !== '—') { navigator.clipboard.writeText(val); toast('Ключ скопирован', 'success'); }
+  });
+  on('btn-hide-key', 'click', () => {
+    document.getElementById('export-key-result').style.display = 'none';
+    document.getElementById('export-key-confirm').style.display = 'block';
+    document.getElementById('export-key-password').value = '';
+    document.getElementById('export-key-value').textContent = '—';
+  });
+
+  // ── Export Seed ──
+  on('btn-back-from-export-seed', 'click', () => showScreen('screen-wallet'));
+  on('btn-reveal-seed', 'click', revealSeedPhrase);
+  on('btn-copy-seed', 'click', () => {
+    const words = [...document.querySelectorAll('#export-seed-grid .word')].map(w => w.textContent);
+    if (words.length) { navigator.clipboard.writeText(words.join(' ')); toast('Seed скопирован', 'success'); }
+  });
+  on('btn-hide-seed', 'click', () => {
+    document.getElementById('export-seed-result').style.display = 'none';
+    document.getElementById('export-seed-confirm').style.display = 'block';
+    document.getElementById('export-seed-password').value = '';
+    document.getElementById('export-seed-grid').innerHTML = '';
+  });
+
   // ── Network selector ──
   document.querySelectorAll('#screen-network .back-btn').forEach(btn =>
     btn.addEventListener('click', goBack)
@@ -2693,8 +2721,8 @@ function bindTabEvents(tab) {
   if (tab === 'settings') {
     on('tab-btn-copy-settings',  copyAddress);
     on('tab-row-network',        showNetworkSelector);
-    on('tab-row-export-key',     () => toast('Экспорт ключа — скоро'));
-    on('tab-row-export-seed',    () => toast('Экспорт seed — скоро'));
+    on('tab-row-export-key',  () => openExportKey());
+    on('tab-row-export-seed', () => openExportSeed());
     on('tab-row-about',          () => toast('OrgonLink v0.1.0'));
     on('tab-btn-reset',          resetWallet);
     // tab-btn-explorer привязывается в showTxDetail напрямую
@@ -3255,6 +3283,86 @@ function copyAddress() {
 // ═══════════════════════════════════════════════════
 //  TX DETAIL
 // ═══════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════
+//  EXPORT PRIVATE KEY / SEED PHRASE
+// ═══════════════════════════════════════════════════
+
+function openExportKey() {
+  // Сбрасываем состояние экрана
+  document.getElementById('export-key-result').style.display = 'none';
+  document.getElementById('export-key-confirm').style.display = 'block';
+  document.getElementById('export-key-password').value = '';
+  document.getElementById('export-key-value').textContent = '—';
+  showScreen('screen-export-key');
+  setTimeout(() => document.getElementById('export-key-password')?.focus(), 300);
+}
+
+function openExportSeed() {
+  document.getElementById('export-seed-result').style.display = 'none';
+  document.getElementById('export-seed-confirm').style.display = 'block';
+  document.getElementById('export-seed-password').value = '';
+  document.getElementById('export-seed-grid').innerHTML = '';
+  showScreen('screen-export-seed');
+  setTimeout(() => document.getElementById('export-seed-password')?.focus(), 300);
+}
+
+async function revealPrivateKey() {
+  const password = document.getElementById('export-key-password')?.value?.trim();
+  if (!password) { toast('Введите пароль', 'error'); return; }
+
+  const btn = document.getElementById('btn-reveal-key');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+  try {
+    console.log('[Export] calling exportPrivateKey...');
+    const privKey = await sendToSW('__internal.exportPrivateKey', { password });
+    console.log('[Export] privKey received:', privKey ? privKey.slice(0,8)+'...' : 'null');
+    document.getElementById('export-key-value').textContent = privKey;
+    document.getElementById('export-key-confirm').style.display = 'none';
+    document.getElementById('export-key-result').style.display = 'block';
+  } catch (e) {
+    toast(e.message || 'Неверный пароль', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Показать ключ';
+    }
+  }
+}
+
+async function revealSeedPhrase() {
+  const password = document.getElementById('export-seed-password')?.value?.trim();
+  if (!password) { toast('Введите пароль', 'error'); return; }
+
+  const btn = document.getElementById('btn-reveal-seed');
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+  try {
+    console.log('[Export] calling exportMnemonic, isLocked check...');
+    const swState = await sendToSW('__internal.getState');
+    console.log('[Export] SW state:', JSON.stringify(swState));
+    const mnemonic = await sendToSW('__internal.exportMnemonic', { password });
+    console.log('[Export] mnemonic received, length:', mnemonic?.length);
+    const words = mnemonic.trim().split(/\s+/);
+    const grid = document.getElementById('export-seed-grid');
+    grid.innerHTML = words.map((w, i) => `
+      <div class="mnemonic-word">
+        <span class="num">${i + 1}</span>
+        <span class="word">${w}</span>
+      </div>`).join('');
+    document.getElementById('export-seed-confirm').style.display = 'none';
+    document.getElementById('export-seed-result').style.display = 'block';
+  } catch (e) {
+    toast(e.message || 'Неверный пароль', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg> Показать seed-фразу';
+    }
+  }
+}
+
 function showTxDetail(tx) {
   state.currentTxID = tx.txID ?? null;  // сохраняем для кнопки эксплорера
   document.getElementById('tx-detail-content').innerHTML = `
@@ -3265,7 +3373,7 @@ function showTxDetail(tx) {
             ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="17" y1="7" x2="7" y2="17"/><polyline points="17 17 7 17 7 7"/></svg>'
             : '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>'}
         </div>
-        <div style="font-size:28px;font-weight:700;font-family:'DM Mono',monospace;" class="${tx.type==='in'?'accent':'red'}">${tx.amount}</div>
+        <div style="font-size:28px;font-weight:700;font-family:'Consolas','SF Mono','Courier New',monospace;" class="${tx.type==='in'?'accent':'red'}">${tx.amount}</div>
         <div class="muted fs12 mt4">${tx.usd}</div>
         <span class="tx-status ${tx.status}" style="margin-top:8px;display:inline-block;">${tx.status==='confirmed'?'Подтверждено':tx.status==='pending'?'Ожидание':'Ошибка'}</span>
       </div>

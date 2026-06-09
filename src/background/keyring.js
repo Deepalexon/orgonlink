@@ -84,6 +84,23 @@ export class KeyringController {
     this._privateKeyBytes = null;
   }
 
+  // ─── Экспорт (требует пароль для подтверждения) ───────────────────────
+
+  async exportPrivateKey(password) {
+    // Перепроверяем пароль перед выдачей ключа
+    await this._decrypt(await this._loadVault(), password);
+    if (!this._privateKeyBytes) throw new Error('Кошелёк заблокирован');
+    return bytesToHex(this._privateKeyBytes);
+  }
+
+  async exportMnemonic(password) {
+    const vault = await this._loadVault();
+    if (!vault) throw new Error('Vault не найден');
+    const decrypted = await this._decrypt(vault, password);
+    if (!decrypted.mnemonic) throw new Error('Seed-фраза недоступна (кошелёк импортирован по приватному ключу)');
+    return decrypted.mnemonic;
+  }
+
   async hasVault() {
     return !!(await this._loadVault());
   }

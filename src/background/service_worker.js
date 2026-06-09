@@ -132,10 +132,6 @@ const handlers = {
     return rpc.getAccount(address);
   },
 
-  async ['trx.getAccount']({ address }) {
-    return rpc.getAccount(address);
-  },
-
   async ['trx.getTransaction']({ txid }) {
     return rpc.getTransactionById(txid);
   },
@@ -309,6 +305,16 @@ const handlers = {
 
   async ['__internal.getPendingRequest']({ requestId }) {
     return txQueue.get(requestId);
+  },
+
+  async ['__internal.exportPrivateKey']({ password }) {
+    if (!state.isUnlocked) throw new Error('Кошелёк заблокирован');
+    return keyring.exportPrivateKey(password);
+  },
+
+  async ['__internal.exportMnemonic']({ password }) {
+    if (!state.isUnlocked) throw new Error('Кошелёк заблокирован');
+    return keyring.exportMnemonic(password);
   },
 
   async ['__internal.generateMnemonic']() {

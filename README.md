@@ -1,156 +1,175 @@
-# OrgonLink — Browser Extension Wallet
+# OrgonLink — Chrome Extension Wallet
 
-Браузерное расширение (Chrome MV3) для блокчейна Orgon — аналог TronLink.
+Браузерное расширение-кошелёк для блокчейна [Orgon](https://orgon.space) (форк Tron).
+
+![Chrome Extension](https://img.shields.io/badge/Chrome-Extension-4fffb0?style=flat&logo=googlechrome)
+![Manifest V3](https://img.shields.io/badge/Manifest-V3-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+
+---
+
+## Возможности
+
+- 🔐 Создание и импорт кошелька (BIP39 seed-фраза / приватный ключ)
+- 💰 Отображение баланса ORGON в реальном времени
+- 💸 Отправка ORGON с подписью транзакции
+- 📊 История транзакций через gate.orgon.space API
+- 📱 QR-код адреса для получения средств
+- 💱 Курс ORGON/USDT с биржи Blazarex
+- 🌐 Поддержка Mainnet и Quasar Testnet
+- 🔌 Provider API для dApp (`window.tron` / `window.tron.tronWeb`)
+
+---
+
+## Параметры блокчейна Orgon
+
+| Параметр | Значение |
+|---|---|
+| Address prefix | `0x73` → адреса начинаются с `o` |
+| Derivation path | `m/44'/195'/0'/0/0` |
+| Sign message | `\x19TRON Signed Message:\n` (TIP-191) |
+| Full Node | `https://tr80.orgon.space` |
+| Solidity Node | `https://tr81.orgon.space` |
+| API Gate | `https://gate.orgon.space` |
+| Testnet Gate | `https://quasargate.orgon.space` |
+| Explorer | `https://orgonscan.org` |
+
+---
+
+## Установка (разработка)
+
+### Требования
+- Node.js 18+
+- npm 9+
+
+### Сборка
+
+```bash
+# Установка зависимостей
+npm install
+
+# Сборка бандлов (dist/)
+npm run build
+
+# Сборка с отслеживанием изменений
+npm run dev
+```
+
+### Установка в Chrome
+
+1. Открой `chrome://extensions`
+2. Включи **Режим разработчика**
+3. Нажми **Загрузить распакованное**
+4. Выбери папку `orgonlink/`
+
+---
 
 ## Архитектура
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     dApp (любой сайт)                   │
-│  const tron = window.tron                               │
-│  const tronWeb = tron.tronWeb                           │
-│  await tronWeb.trx.sign(tx)                             │
-│  await tronWeb.transactionBuilder.sendTrx(to, amount)   │
-└────────────────┬────────────────────────────────────────┘
-                 │ CustomEvent('OrgonLinkRequest')
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│  src/provider/orgonWeb.js  [MAIN world]                 │
-│  • window.tron             — основной объект провайдера │
-│  • window.tron.tronWeb     — OrgonWeb экземпляр         │
-│  • window.orgonWeb         — псевдоним                  │
-│  • transactionBuilder, trx, contract, utils             │
-│  • EventEmitter: connect, disconnect, accountsChanged   │
-└────────────────┬────────────────────────────────────────┘
-                 │ CustomEvent ↕
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│  src/content/bridge.js  [ISOLATED world]                │
-│  • chrome.runtime.sendMessage ↔ SW                      │
-└────────────────┬────────────────────────────────────────┘
-                 │ chrome.runtime.sendMessage
-                 ▼
-┌─────────────────────────────────────────────────────────┐
-│  src/background/service_worker.js                       │
-│  ├── KeyringController  (ключи, AES-256-GCM vault)      │
-│  ├── OrgonRPC           (HTTP клиент Full Node)         │
-│  ├── PermissionController (разрешения dApp)             │
-│  └── TxQueue            (очередь подтверждений)         │
-└────────────────┬────────────────────────────────────────┘
-                 │ fetch / HTTPS
-                 ▼
-    https://tr80.orgon.space  (Full Node)
-    https://tr81.orgon.space  (Solidity Node)
+orgonlink/
+├── manifest.json              # Chrome Extension MV3 манифест
+├── icons/                     # Иконки расширения
+├── src/
+│   ├── background/
+│   │   ├── service_worker.js  # SW: обработчики RPC, подпись, хранение
+│   │   ├── keyring.js         # Крипта: BIP39, HD деривация, подпись tx
+│   │   ├── rpc.js             # HTTP клиент Full Node / Gate API
+│   │   ├── permissions.js     # Контроль доступа dApp
+│   │   └── tx_queue.js        # Очередь подтверждения транзакций
+│   ├── content/
+│   │   └── bridge.js          # ISOLATED world: мост popup ↔ provider
+│   ├── provider/
+│   │   └── orgonWeb.js        # MAIN world: window.tron провайдер
+│   ├── popup/
+│   │   ├── popup.html         # UI расширения
+│   │   └── popup.js           # Логика UI (CSP-совместимо, без inline JS)
+│   └── shared/
+│       └── constants.js       # Сети, константы
+└── dist/                      # Бандлы Rollup (генерируется)
+    ├── background/service_worker.js
+    ├── content/bridge.js
+    └── provider/orgonWeb.js
 ```
 
-## Ноды и сеть
+### Поток данных
 
-| Параметр | Значение |
-|---|---|
-| Full Node | `https://tr80.orgon.space` |
-| Solidity Node | `https://tr81.orgon.space` |
-| Full Node (http+port) | `http://tr80.orgon.space:19067` |
-| Solidity Node (http+port) | `http://tr80.orgon.space:19068` |
-| OrgonGate (платный) | `https://gate.orgon.space` |
-| Testnet (Quasar) | `https://api.quasar.orgonscan.org` |
-| API Key Header | `ORGON-PRO-API-KEY` ← отличается от Tron! |
-
-## Провайдер — как dApp использует OrgonLink
-
-### Подключение
-```javascript
-// Получить провайдер (как в TronLink)
-const tron = window.tron;
-const tronWeb = tron.tronWeb;
-
-// Запрос доступа — показывает popup
-await tron.request({ method: 'tron_requestAccounts' });
-// или
-await tronWeb.requestAccess();
-
-// Состояние
-console.log(tronWeb.ready);          // true если подключён и разблокирован
-console.log(tronWeb.defaultAddress); // { base58, hex } или false
-
-// События
-tronWeb.on('connect', ({ address }) => console.log('Connected:', address));
-tronWeb.on('disconnect', () => console.log('Disconnected'));
-tronWeb.on('accountsChanged', addr => console.log('New account:', addr));
-tronWeb.on('networkChanged', net => console.log('Network:', net));
+```
+dApp → window.tron.tronWeb → CustomEvent → bridge.js (ISOLATED)
+     → chrome.runtime.sendMessage → service_worker.js
+     → KeyringController (подпись) + OrgonRPC (broadcast)
+     → https://tr80.orgon.space
 ```
 
-### Создание и отправка транзакции
-```javascript
-// 1. Создать транзакцию
-const tx = await tronWeb.transactionBuilder.sendTrx(toAddress, amountInSun);
-// 2. Подписать (открывается popup OrgonLink)
-const signedTx = await tronWeb.trx.sign(tx);
-// 3. Broadcast
-const result = await tronWeb.trx.sendRawTransaction(signedTx);
-console.log(result.txid);
-```
+---
 
-### oRC20 токены
-```javascript
-// Через contract()
-const contract = await tronWeb.contract(ERC20_ABI, tokenAddress);
-const balance = await contract.balanceOf(myAddress).call();
-const txId = await contract.transfer(toAddress, amount).send({ feeLimit: 100_000_000 });
+## API интеграции
 
-// Через transactionBuilder (низкоуровнево)
-const tx = await tronWeb.transactionBuilder.triggerSmartContract(
-  tokenAddress,
-  'transfer(address,uint256)',
-  { feeLimit: 100_000_000 },
-  [{ type: 'address', value: toAddress }, { type: 'uint256', value: 100 }]
-);
-const signed = await tronWeb.trx.sign(tx.transaction);
-await tronWeb.trx.sendRawTransaction(signed);
-```
-
-### Подпись сообщений (TIP-191)
-```javascript
-// signMessageV2 — рекомендуется (TIP-191, префикс "\x19TRON Signed Message:\n")
-const signature = await tronWeb.trx.signMessageV2('Hello Orgon');
-
-// Верификация — возвращает base58 адрес подписанта
-const signer = await tronWeb.trx.verifyMessageV2('Hello Orgon', signature);
-console.log(signer === tronWeb.defaultAddress.base58); // true
-```
-
-## Ключевые отличия от TronLink / TronWeb
-
-| Параметр | TronLink / TronWeb | OrgonLink |
+| Сервис | URL | Назначение |
 |---|---|---|
-| npm пакет | `tronweb` | `orgonweb` |
-| window объект | `window.tron` | `window.tron` ✓ (совместимо) |
-| API Key Header | `TRON-PRO-API-KEY` | `ORGON-PRO-API-KEY` |
-| Full Node | `https://api.trongrid.io` | `https://tr80.orgon.space` |
-| Токен стандарты | TRC-10, TRC-20, TRC-721 | oRC-10, oRC-20, oRC-721 |
-| Нативный токен | TRX | ORGON |
-| Подпись префикс | `\x19TRON Signed Message:\n` | `\x19TRON Signed Message:\n` (совместимо) |
+| Orgon Full Node | `https://tr80.orgon.space` | Баланс, создание tx, broadcast |
+| Orgon Gate | `https://gate.orgon.space` | История транзакций (`/v1/accounts/`) |
+| Quasar Testnet | `https://quasargate.orgon.space` | Тестовая сеть |
+| Blazarex | `https://public-api.blazarex.com/api/tickers` | Курс ORGON/USDT |
 
-## TODO — заглушки требующие реализации
+---
 
-Файл `src/background/keyring.js` содержит заглушки вместо реальных crypto операций.
-После `npm install` заменить их на:
+## Стек технологий
 
-```javascript
-// Деривация адреса
-import { mnemonicToSeed } from '@scure/bip39';
-import { HDKey } from '@scure/bip32';
-import * as secp256k1 from '@noble/secp256k1';
-import { keccak_256 } from '@noble/hashes/sha3';
-import bs58check from 'bs58check';
+| Компонент | Технология |
+|---|---|
+| Крипто | `@noble/curves`, `@noble/hashes`, `@scure/bip32`, `@scure/bip39`, `bs58check` |
+| Бандлер | Rollup + plugins (commonjs, node-resolve, polyfill-node, terser) |
+| Шифрование vault | AES-256-GCM + PBKDF2 (600k итераций), WebCrypto API |
+| QR-код | qrcode-generator (встроен в popup.js) |
+| Стандарт | Chrome Extension MV3, CSP `script-src 'self'` |
 
-// Подпись
-const sig = await secp256k1.sign(txIdBytes, privateKey, { lowS: true });
+---
+
+## Рабочий процесс (Git Flow)
+
+```bash
+# Новая фича
+git checkout develop
+git checkout -b feature/имя-фичи
+# ... разработка ...
+git add .
+git commit -m "feat: описание"
+git push origin feature/имя-фичи
+# Pull Request → develop
+
+# Релиз
+git checkout main
+git merge develop
+git tag v0.2.0
+git push origin main --tags
 ```
 
-## Следующие этапы
+---
 
-1. **Popup UI** — создание/импорт кошелька, баланс, история транзакций
-2. **Approval UI** — popup подтверждения транзакций и connect-запросов
-3. **Crypto** — подключить @noble/* libs, убрать заглушки в keyring.js
-4. **Build pipeline** — настроить Rollup/Webpack для бандлинга
-5. **Тесты** — unit тесты KeyringController, интеграционные с Quasar testnet
+## Конвенция коммитов
+
+```
+feat:     новая функция
+fix:      исправление бага
+refactor: рефакторинг без изменения поведения
+style:    UI/CSS правки
+docs:     документация
+build:    изменения сборки
+```
+
+---
+
+## Дорожная карта
+
+- [ ] Поддержка oRC-20 токенов (баланс + отправка)
+- [ ] Стейкинг ORGON
+- [ ] Мультиаккаунт
+- [ ] Hardware wallet (Ledger)
+- [ ] Публикация в Chrome Web Store
+
+---
+
+## Лицензия
+
+MIT — см. [LICENSE](LICENSE)
