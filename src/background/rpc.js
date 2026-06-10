@@ -202,25 +202,30 @@ export class OrgonRPC {
   /**
    * История транзакций аккаунта (через /v1/ API, аналог TronGrid).
    */
-  async getTransactions(address, limit = 20) {
-    // gate.orgon.space / quasargate.orgon.space — TronGrid-совместимый REST API
-    // Формат ответа: { data: [...], success: true, meta: { ... } }
-    const url = `${this.apiGateUrl}/v1/accounts/${address}/transactions?limit=${limit}`;
+  async getTransactions(base58Address, hexAddress, limit = 20) {
+    // gate.orgon.space принимает ТОЛЬКО base58 адрес (начинается с 'o')
+    // hex адрес возвращает data:null (транзакции не найдены)
     const headers = { 'Accept': 'application/json' };
     if (this.apiKey) headers[API_KEY_HEADER] = this.apiKey;
 
-    try {
-      const res = await fetch(url, { headers });
-      const text = await res.text();
-      console.log('[RPC] transactions status:', res.status, 'preview:', text.slice(0, 80));
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = JSON.parse(text);
-      if (!data.success) throw new Error('API error: ' + JSON.stringify(data));
-      return data.data ?? [];
-    } catch (e) {
-      console.warn('[RPC] getTransactions failed:', e.message);
-      return [];
+    const url = `${this.apiGateUrl}/v1/accounts/${base58Address}/transactions?limit=${limit}`;
+    console.log('[RPC] getTransactions:', base58Address.slice(0,12) + '...');
+
+    const res = await fetch(url, { headers });
+    const text = await res.text();
+    console.log('[RPC] gate', res.status, text.slice(0, 120));
+
+    if (!res.ok) {
+      throw new Error('gate HTTP ' + res.status + ': ' + text.slice(0, 60));
     }
+
+    const data = JSON.parse(text);
+
+    // data:null + success:true = аккаунт найден но транзакций нет (новый аккаунт)
+    // data:[...] = транзакции есть
+    const txs = Array.isArray(data.data) ? data.data : [];
+    console.log('[RPC] getTransactions count:', txs.length);
+    return txs;
   }
 
 }

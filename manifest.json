@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "OrgonLink",
   "version": "0.1.0",
-  "description": "OrgonLink Wallet \u2014 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u043d\u044b\u0439 \u043a\u043e\u0448\u0435\u043b\u0451\u043a \u0434\u043b\u044f \u0431\u043b\u043e\u043a\u0447\u0435\u0439\u043d\u0430 Orgon",
+  "description": "OrgonLink Wallet — браузерный кошелёк для блокчейна Orgon",
   "permissions": [
     "storage",
     "unlimitedStorage",
@@ -12,7 +12,8 @@
   ],
   "host_permissions": [
     "https://*/*",
-    "http://localhost/*"
+    "http://localhost/*",
+    "file:///*"
   ],
   "background": {
     "service_worker": "dist/background/service_worker.js"
@@ -21,7 +22,8 @@
     {
       "matches": [
         "https://*/*",
-        "http://localhost/*"
+        "http://localhost/*",
+        "file:///*"
       ],
       "js": [
         "dist/provider/orgonWeb.js"
@@ -32,7 +34,8 @@
     {
       "matches": [
         "https://*/*",
-        "http://localhost/*"
+        "http://localhost/*",
+        "file:///*"
       ],
       "js": [
         "dist/content/bridge.js"
@@ -61,7 +64,8 @@
       ],
       "matches": [
         "https://*/*",
-        "http://localhost/*"
+        "http://localhost/*",
+        "file:///*"
       ]
     }
   ],

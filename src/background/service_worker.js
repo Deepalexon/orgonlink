@@ -125,7 +125,10 @@ const handlers = {
   },
 
   async ['trx.getTransactions']({ address, limit = 20 }) {
-    return rpc.getTransactions(address, limit);
+    // gate.orgon.space принимает base58 адрес (начинается с 'o')
+    const base58Addr = state.selectedAddress?.base58 ?? address;
+    const hexAddr = state.selectedAddress?.hex ?? null;
+    return rpc.getTransactions(base58Addr, hexAddr, limit);
   },
 
   async ['trx.getAccount']({ address }) {
@@ -386,6 +389,14 @@ function openApprovalPopup(type, data) {
     const requestId = `approval_${Date.now()}`;
     txQueue.addApproval(requestId, resolve);
 
+    // Сохраняем в storage.session — переживает засыпание SW
+    chrome.storage.session?.set({
+      [`pending_approval_${requestId}`]: { type, data, requestId, ts: Date.now() }
+    }).catch(() => {});
+
+    // Держим SW живым через порт пока ждём подтверждения
+    keepSwAlive();
+
     const params = new URLSearchParams({
       type,
       requestId,
@@ -400,6 +411,21 @@ function openApprovalPopup(type, data) {
       focused: true,
     });
   });
+}
+
+// Держим SW живым пока есть pending approvals
+let _keepAliveInterval = null;
+function keepSwAlive() {
+  if (_keepAliveInterval) return;
+  _keepAliveInterval = setInterval(() => {
+    if (txQueue._approvals.size === 0) {
+      clearInterval(_keepAliveInterval);
+      _keepAliveInterval = null;
+      return;
+    }
+    // Пинг чтобы SW не засыпал
+    chrome.storage.local.set({ __sw_keepalive: Date.now() }).catch(() => {});
+  }, 5000);
 }
 
 function openPopup(view) {

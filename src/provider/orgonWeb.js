@@ -48,7 +48,7 @@
       setTimeout(() => {
         window.removeEventListener('OrgonLinkResponse', handler);
         reject(new OrgonProviderError(4001, `Request timeout: ${method}`));
-      }, 30_000);
+      }, 60_000);
     });
   }
 
@@ -290,6 +290,21 @@
 
     async getBlockByNumber(num) {
       return _request('trx.getBlockByNumber', { num });
+    }
+
+    async getBalance(address) {
+      return _request('trx.getBalance', { address });
+    }
+
+    async getTransactions(address, limit = 20) {
+      return _request('trx.getTransactions', { address, limit });
+    }
+
+    /**
+     * sign — подписать транзакцию (алиас trx.sign = tronWeb.sign)
+     */
+    async sign(transaction) {
+      return this._p.sign(transaction);
     }
   }
 

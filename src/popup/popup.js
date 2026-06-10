@@ -2525,8 +2525,8 @@ async function init() {
   }
 
   if (type === 'transaction' && requestId) {
-    state.txApprovalData = { requestId, ...data };
-    showTxApproval(data);
+    // Передаём requestId вместе с data — он нужен в approveTx/rejectTx
+    showTxApproval({ requestId, ...data });
     return;
   }
 
@@ -3433,7 +3433,9 @@ async function rejectApproval() {
 }
 
 function showTxApproval(data) {
+  // Сохраняем requestId — он нужен для approveRequest в SW
   state.txApprovalData = data;
+  console.log('[Approval] txApprovalData.requestId:', data?.requestId);
   document.getElementById('tx-approval-origin').textContent = data?.origin || '—';
 
   const tx = data?.transaction ?? {};
@@ -3453,18 +3455,39 @@ function showTxApproval(data) {
 }
 
 async function approveTx() {
-  if (!state.txApprovalData) return;
-  await sendToSW('__internal.approveRequest', {
-    requestId: state.txApprovalData.requestId, approved: true
-  });
-  window.close();
+  if (!state.txApprovalData) {
+    console.error('[Approval] txApprovalData is null!');
+    toast('Ошибка: данные транзакции недоступны', 'error');
+    return;
+  }
+  const { requestId } = state.txApprovalData;
+  if (!requestId) {
+    console.error('[Approval] requestId is missing!', state.txApprovalData);
+    toast('Ошибка: requestId недоступен', 'error');
+    return;
+  }
+  console.log('[Approval] approving requestId:', requestId);
+
+  const btn = document.getElementById('btn-approve-tx');
+  if (btn) { btn.disabled = true; btn.textContent = 'Подтверждение...'; }
+
+  try {
+    await sendToSW('__internal.approveRequest', { requestId, approved: true });
+    console.log('[Approval] approved successfully');
+    window.close();
+  } catch (e) {
+    console.error('[Approval] error:', e.message);
+    toast('Ошибка подтверждения: ' + e.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Подтвердить'; }
+  }
 }
 
 async function rejectTx() {
   if (!state.txApprovalData) return;
-  await sendToSW('__internal.approveRequest', {
-    requestId: state.txApprovalData.requestId, approved: false
-  });
+  const { requestId } = state.txApprovalData;
+  if (!requestId) return;
+  console.log('[Approval] rejecting requestId:', requestId);
+  await sendToSW('__internal.approveRequest', { requestId, approved: false });
   window.close();
 }
 
