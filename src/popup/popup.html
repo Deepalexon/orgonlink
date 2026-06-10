@@ -1051,6 +1051,259 @@
   </div>
 </div>
 
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: STAKING (Freeze / Unfreeze)
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-staking">
+  <div class="top-bar">
+    <button class="back-btn" id="btn-back-from-staking">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Заморозка ORGON</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area p16">
+
+    <!-- Ресурсы текущего аккаунта -->
+    <div class="card mb16" id="staking-resources">
+      <div class="label mb12">Ресурсы</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+
+        <!-- Bandwidth -->
+        <div class="card-sm">
+          <div class="flex justify-between flex-center mb6">
+            <span class="fs11 muted">Bandwidth</span>
+            <span class="fs11 accent fw600" id="stk-bw-avail">—</span>
+          </div>
+          <div style="height:4px;background:var(--border2);border-radius:2px;overflow:hidden;">
+            <div id="stk-bw-bar" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width .3s;"></div>
+          </div>
+          <div class="flex justify-between mt6">
+            <span class="fs11 muted">Заморожено</span>
+            <span class="mono fs11 fw600" id="stk-bw-frozen">0 ORGON</span>
+          </div>
+        </div>
+
+        <!-- Energy -->
+        <div class="card-sm">
+          <div class="flex justify-between flex-center mb6">
+            <span class="fs11 muted">Energy</span>
+            <span class="fs11 fw600" style="color:var(--amber);" id="stk-en-avail">—</span>
+          </div>
+          <div style="height:4px;background:var(--border2);border-radius:2px;overflow:hidden;">
+            <div id="stk-en-bar" style="height:100%;background:var(--amber);border-radius:2px;width:0%;transition:width .3s;"></div>
+          </div>
+          <div class="flex justify-between mt6">
+            <span class="fs11 muted">Заморожено</span>
+            <span class="mono fs11 fw600" id="stk-en-frozen">0 ORGON</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tron Power -->
+      <div class="flex justify-between flex-center mt12 pt12" style="border-top:1px solid var(--border);">
+        <div>
+          <div class="fs12 fw600">Tron Power (голоса)</div>
+          <div class="fs11 muted mt4">1 ORGON заморожен = 1 голос</div>
+        </div>
+        <div class="text-right">
+          <div class="mono fw600 accent fs13" id="stk-tp">0 TP</div>
+          <div class="fs11 muted" id="stk-balance">Баланс: — ORGON</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Таб: Заморозить / Разморозить -->
+    <div class="flex gap8 mb14">
+      <button class="btn btn-primary" id="stk-tab-freeze" style="flex:1;height:36px;font-size:12px;">
+        ❄️ Заморозить
+      </button>
+      <button class="btn btn-secondary" id="stk-tab-unfreeze" style="flex:1;height:36px;font-size:12px;">
+        🔥 Разморозить
+      </button>
+    </div>
+
+    <!-- Панель: Заморозить -->
+    <div id="stk-panel-freeze">
+      <div class="input-group mb12">
+        <label class="input-label">Ресурс</label>
+        <div class="flex gap8">
+          <button class="btn btn-primary" id="stk-res-bandwidth" style="flex:1;height:36px;font-size:12px;">
+            Bandwidth
+          </button>
+          <button class="btn btn-secondary" id="stk-res-energy" style="flex:1;height:36px;font-size:12px;">
+            Energy
+          </button>
+        </div>
+      </div>
+      <div class="input-group mb12">
+        <div class="flex justify-between flex-center">
+          <label class="input-label">Сумма ORGON</label>
+          <span class="send-max fs11" id="stk-max-btn">Весь баланс</span>
+        </div>
+        <div class="amount-input-wrap">
+          <input type="number" id="stk-freeze-amount" placeholder="0.000000" style="padding-right:70px;" min="1" step="1">
+          <span class="amount-suffix">ORGON</span>
+        </div>
+      </div>
+      <div class="card-sm mb14" style="font-size:12px;">
+        <div class="fee-row"><span class="muted">Минимум</span><span class="mono">1 ORGON</span></div>
+        <div class="fee-row"><span class="muted">Период разморозки</span><span class="amber">14 дней</span></div>
+        <div class="fee-row" style="border:none;"><span class="muted">Вы получите</span><span class="mono accent" id="stk-will-get">— TP + ресурс</span></div>
+      </div>
+      <button class="btn btn-primary" id="btn-do-freeze">
+        ❄️ Заморозить
+      </button>
+    </div>
+
+    <!-- Панель: Разморозить -->
+    <div id="stk-panel-unfreeze" style="display:none;">
+      <div class="input-group mb12">
+        <label class="input-label">Ресурс</label>
+        <div class="flex gap8">
+          <button class="btn btn-primary" id="stk-unres-bandwidth" style="flex:1;height:36px;font-size:12px;">
+            Bandwidth
+          </button>
+          <button class="btn btn-secondary" id="stk-unres-energy" style="flex:1;height:36px;font-size:12px;">
+            Energy
+          </button>
+        </div>
+      </div>
+      <div class="input-group mb12">
+        <div class="flex justify-between flex-center">
+          <label class="input-label">Сумма ORGON</label>
+          <span class="send-max fs11" id="stk-unmax-btn">Максимум</span>
+        </div>
+        <div class="amount-input-wrap">
+          <input type="number" id="stk-unfreeze-amount" placeholder="0.000000" style="padding-right:70px;" min="1" step="1">
+          <span class="amount-suffix">ORGON</span>
+        </div>
+      </div>
+      <div class="card-sm mb14" style="font-size:12px;">
+        <div class="fee-row"><span class="muted">Доступно к разморозке</span><span class="mono accent" id="stk-avail-unfreeze">—</span></div>
+        <div class="fee-row" style="border:none;"><span class="muted">Средства придут через</span><span class="amber">14 дней</span></div>
+      </div>
+      <button class="btn btn-primary" id="btn-do-unfreeze">
+        🔥 Разморозить
+      </button>
+
+      <!-- Ожидающий вывод -->
+      <div id="stk-withdraw-section" style="display:none;margin-top:16px;">
+        <div class="divider"></div>
+        <div class="flex justify-between flex-center mt12 mb8">
+          <div>
+            <div class="fs12 fw600">Готово к выводу</div>
+            <div class="fs11 muted" id="stk-withdraw-amount">0 ORGON</div>
+          </div>
+          <button class="btn btn-secondary" id="btn-do-withdraw" style="width:auto;height:34px;font-size:12px;padding:0 14px;">
+            Получить
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: VOTING (Голосование за валидаторов)
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-voting">
+  <div class="top-bar">
+    <button class="back-btn" id="btn-back-from-voting">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Голосование</span>
+    <button class="btn-icon" id="btn-voting-refresh" title="Обновить">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+    </button>
+  </div>
+
+  <div class="scroll-area">
+
+    <!-- Мои голоса / Tron Power -->
+    <div class="card p16 mb0" style="border-radius:0;border-left:none;border-right:none;border-top:none;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <div>
+          <div class="fs11 muted">Tron Power</div>
+          <div class="mono fw600 fs13 accent" id="vote-tp-total">0 TP</div>
+        </div>
+        <div>
+          <div class="fs11 muted">Использовано</div>
+          <div class="mono fw600 fs13" id="vote-tp-used">0 TP</div>
+        </div>
+        <div>
+          <div class="fs11 muted">Доступно</div>
+          <div class="mono fw600 fs13 accent" id="vote-tp-avail">0 TP</div>
+        </div>
+      </div>
+
+      <!-- Награды -->
+      <div class="flex justify-between flex-center mt10 pt10" style="border-top:1px solid var(--border);">
+        <div>
+          <div class="fs12 fw600">Награды за голосование</div>
+          <div class="mono accent fs12" id="vote-reward">0.000000 ORGON</div>
+        </div>
+        <button class="btn btn-secondary" id="btn-claim-rewards"
+          style="width:auto;height:32px;font-size:11px;padding:0 12px;">
+          Получить
+        </button>
+      </div>
+    </div>
+
+    <!-- Мои текущие голоса -->
+    <div id="my-votes-section" style="display:none;">
+      <div class="section-hdr">
+        <span class="section-title">Мои голоса</span>
+        <button class="btn-ghost btn" id="btn-clear-votes"
+          style="height:26px;font-size:11px;padding:0 10px;color:var(--red);">
+          Сбросить всё
+        </button>
+      </div>
+      <div id="my-votes-list"></div>
+    </div>
+
+    <!-- Список валидаторов -->
+    <div class="section-hdr" style="padding-top:14px;">
+      <span class="section-title">Валидаторы</span>
+      <div class="fs11 muted" id="vote-witness-count"></div>
+    </div>
+
+    <!-- Фильтр / поиск -->
+    <div style="padding:0 16px 10px;">
+      <input type="text" id="vote-search" placeholder="Поиск по имени или адресу..."
+        style="font-family:inherit;font-size:13px;">
+    </div>
+
+    <!-- Список -->
+    <div id="witness-list">
+      <div class="p16 text-center muted loading" style="padding:32px;">
+        Загрузка валидаторов...
+      </div>
+    </div>
+
+    <!-- Кнопка применить голоса -->
+    <div id="vote-submit-bar" style="display:none;padding:16px;border-top:1px solid var(--border);
+      position:sticky;bottom:0;background:var(--bg2);">
+      <div class="flex justify-between flex-center mb10">
+        <span class="fs12 muted">Распределено голосов:</span>
+        <span class="mono fw600 accent" id="vote-distributed">0 / 0 TP</span>
+      </div>
+      <button class="btn btn-primary" id="btn-submit-votes">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+        Проголосовать
+      </button>
+    </div>
+
+  </div>
+</div>
+
 <!-- Toast -->
 <div id="toast"></div>
 

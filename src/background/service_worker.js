@@ -6,7 +6,7 @@
 
 'use strict';
 
-import { KeyringController } from './keyring.js';
+import { KeyringController, hexToBase58 } from './keyring.js';
 import { OrgonRPC } from './rpc.js';
 import { PermissionController } from './permissions.js';
 import { TxQueue } from './tx_queue.js';
@@ -129,6 +129,89 @@ const handlers = {
     const base58Addr = state.selectedAddress?.base58 ?? address;
     const hexAddr = state.selectedAddress?.hex ?? null;
     return rpc.getTransactions(base58Addr, hexAddr, limit);
+  },
+
+  // ─── Ресурсы: Energy, Bandwidth, Staking ──────────────────────────────
+
+  async ['trx.getAccountResource']({ address }) {
+    const addr = address ?? state.selectedAddress?.base58;
+    return rpc.getAccountResource(addr);
+  },
+
+  async ['wallet.freezeBalanceV2']({ amount, resource }) {
+    if (!state.isUnlocked) throw providerError(4100, 'Wallet locked');
+    const ownerAddr = state.selectedAddress?.base58;
+    const raw = await rpc.freezeBalanceV2(ownerAddr, amount, resource);
+    if (!raw?.txID) throw new Error(raw?.Error ?? 'Ошибка создания транзакции freeze');
+    const signed = await keyring.signTransaction(state.selectedAddress.hex, raw);
+    return rpc.broadcastTransaction(signed);
+  },
+
+  async ['wallet.unfreezeBalanceV2']({ amount, resource }) {
+    if (!state.isUnlocked) throw providerError(4100, 'Wallet locked');
+    const ownerAddr = state.selectedAddress?.base58;
+    const raw = await rpc.unfreezeBalanceV2(ownerAddr, amount, resource);
+    if (!raw?.txID) throw new Error(raw?.Error ?? 'Ошибка создания транзакции unfreeze');
+    const signed = await keyring.signTransaction(state.selectedAddress.hex, raw);
+    return rpc.broadcastTransaction(signed);
+  },
+
+  async ['wallet.withdrawExpireUnfreeze']() {
+    if (!state.isUnlocked) throw providerError(4100, 'Wallet locked');
+    const ownerAddr = state.selectedAddress?.base58;
+    const raw = await rpc.withdrawExpireUnfreeze(ownerAddr);
+    if (!raw?.txID) throw new Error(raw?.Error ?? 'Нет средств для вывода');
+    const signed = await keyring.signTransaction(state.selectedAddress.hex, raw);
+    return rpc.broadcastTransaction(signed);
+  },
+
+  // ─── Голосование ────────────────────────────────────────────────────────
+
+  async ['wallet.listWitnesses']() {
+    const witnesses = await rpc.listWitnesses();
+    // Конвертируем hex адреса в base58 для отображения и голосования
+    return (witnesses ?? []).map(w => ({
+      ...w,
+      address: w.address ? hexToBase58(w.address) : w.address,
+    }));
+  },
+
+  async ['wallet.getAccountVotes']({ address }) {
+    const addr = address ?? state.selectedAddress?.base58;
+    const votes = await rpc.getAccountVotes(addr);
+    // vote_address может быть hex — конвертируем
+    return (votes ?? []).map(v => ({
+      ...v,
+      vote_address: v.vote_address ? hexToBase58(v.vote_address) : v.vote_address,
+    }));
+  },
+
+  async ['wallet.getReward']({ address }) {
+    const addr = address ?? state.selectedAddress?.base58;
+    return rpc.getReward(addr);
+  },
+
+  async ['wallet.voteWitness']({ votes }) {
+    if (!state.isUnlocked) throw providerError(4100, 'Wallet locked');
+    const ownerAddr = state.selectedAddress?.base58;
+    const raw = await rpc.voteWitness(ownerAddr, votes);
+    if (!raw?.txID) throw new Error(raw?.Error ?? 'Ошибка создания транзакции голосования');
+    const signed = await keyring.signTransaction(state.selectedAddress.hex, raw);
+    return rpc.broadcastTransaction(signed);
+  },
+
+  async ['wallet.withdrawVotingRewards']() {
+    if (!state.isUnlocked) throw providerError(4100, 'Wallet locked');
+    const ownerAddr = state.selectedAddress?.base58;
+    const raw = await rpc.withdrawVotingRewards(ownerAddr);
+    if (!raw?.txID) throw new Error(raw?.Error ?? 'Нет наград для вывода');
+    const signed = await keyring.signTransaction(state.selectedAddress.hex, raw);
+    return rpc.broadcastTransaction(signed);
+  },
+
+  async ['wallet.getCanWithdrawUnfreeze']() {
+    const addr = state.selectedAddress?.base58;
+    return rpc.getCanWithdrawUnfreezeAmount(addr);
   },
 
   async ['trx.getAccount']({ address }) {

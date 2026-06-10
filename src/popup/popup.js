@@ -2310,6 +2310,22 @@ const state = {
   generatedMnemonic: null,
   approvalData: null,
   txApprovalData: null,
+  currentTxID: null,
+
+  // Цена
+  orgonPriceUsd: null,
+  priceChange24h: 0,
+
+  // Ресурсы (Energy, Bandwidth, Tron Power)
+  resources: null,
+  stakingResource: 'BANDWIDTH',
+  unStakingResource: 'BANDWIDTH',
+
+  // Голосование
+  witnesses: [],
+  myVotes: {},
+  currentVotes: [],
+  votingReward: 0,
 };
 
 
@@ -2470,6 +2486,76 @@ function bindEvents() {
   // ── TX Approval ──
   on('btn-reject-tx',       'click', rejectTx);
   on('btn-approve-tx',      'click', approveTx);
+
+  // ── Voting ──
+  on('btn-back-from-voting', 'click', () => showScreen('screen-wallet'));
+  on('btn-voting-refresh',   'click', loadWitnesses);
+  on('btn-claim-rewards',    'click', claimVotingRewards);
+  on('btn-clear-votes',      'click', clearMyVotes);
+  on('btn-submit-votes',     'click', submitVotes);
+
+  document.getElementById('vote-search')?.addEventListener('input', filterWitnesses);
+
+  // ── Staking ──
+  on('btn-back-from-staking', 'click', () => showScreen('screen-wallet'));
+
+  on('stk-tab-freeze', 'click', () => {
+    document.getElementById('stk-panel-freeze').style.display = 'block';
+    document.getElementById('stk-panel-unfreeze').style.display = 'none';
+    document.getElementById('stk-tab-freeze').className = 'btn btn-primary';
+    document.getElementById('stk-tab-unfreeze').className = 'btn btn-secondary';
+  });
+  on('stk-tab-unfreeze', 'click', () => {
+    document.getElementById('stk-panel-freeze').style.display = 'none';
+    document.getElementById('stk-panel-unfreeze').style.display = 'block';
+    document.getElementById('stk-tab-freeze').className = 'btn btn-secondary';
+    document.getElementById('stk-tab-unfreeze').className = 'btn btn-primary';
+    loadWithdrawable();
+  });
+
+  // Выбор ресурса — Freeze
+  on('stk-res-bandwidth', 'click', () => {
+    state.stakingResource = 'BANDWIDTH';
+    document.getElementById('stk-res-bandwidth').className = 'btn btn-primary';
+    document.getElementById('stk-res-energy').className = 'btn btn-secondary';
+    updateFreezePreview();
+  });
+  on('stk-res-energy', 'click', () => {
+    state.stakingResource = 'ENERGY';
+    document.getElementById('stk-res-bandwidth').className = 'btn btn-secondary';
+    document.getElementById('stk-res-energy').className = 'btn btn-primary';
+    updateFreezePreview();
+  });
+  on('stk-max-btn', 'click', () => {
+    const el = document.getElementById('stk-freeze-amount');
+    if (el) { el.value = Math.floor(state.balanceSun / 1e6); updateFreezePreview(); }
+  });
+  document.getElementById('stk-freeze-amount')?.addEventListener('input', updateFreezePreview);
+
+  // Выбор ресурса — Unfreeze
+  on('stk-unres-bandwidth', 'click', () => {
+    state.unStakingResource = 'BANDWIDTH';
+    document.getElementById('stk-unres-bandwidth').className = 'btn btn-primary';
+    document.getElementById('stk-unres-energy').className = 'btn btn-secondary';
+    updateUnfreezeMax();
+  });
+  on('stk-unres-energy', 'click', () => {
+    state.unStakingResource = 'ENERGY';
+    document.getElementById('stk-unres-bandwidth').className = 'btn btn-secondary';
+    document.getElementById('stk-unres-energy').className = 'btn btn-primary';
+    updateUnfreezeMax();
+  });
+  on('stk-unmax-btn', 'click', () => {
+    const r = state.resources;
+    if (!r) return;
+    const max = state.unStakingResource === 'ENERGY' ? r.frozenEnergyOrgon : r.frozenBandwidthOrgon;
+    const el = document.getElementById('stk-unfreeze-amount');
+    if (el) el.value = Math.floor(max);
+  });
+
+  on('btn-do-freeze',    'click', doFreeze);
+  on('btn-do-unfreeze',  'click', doUnfreeze);
+  on('btn-do-withdraw',  'click', doWithdraw);
 
   // ── Export Key ──
   on('btn-back-from-export-key', 'click', () => showScreen('screen-wallet'));
@@ -2698,8 +2784,10 @@ function bindTabEvents(tab) {
   if (tab === 'assets') {
     on('tab-copy-addr',      copyAddress);
     on('tab-btn-send',       openSend);
+    on('tab-btn-staking',    openStaking);
     on('tab-btn-receive',    () => { showScreen('screen-receive'); renderQR(); });
     on('tab-btn-swap',       () => toast('Обмен — скоро'));
+    on('tab-btn-staking',    openStaking);
     on('tab-btn-add-token',  () => toast('Добавление токена — скоро'));
   }
 
@@ -2722,6 +2810,8 @@ function bindTabEvents(tab) {
     on('tab-btn-copy-settings',  copyAddress);
     on('tab-row-network',        showNetworkSelector);
     on('tab-row-export-key',  () => openExportKey());
+    on('tab-row-staking',     () => openStaking());
+    on('tab-row-voting',      () => openVoting());
     on('tab-row-export-seed', () => openExportSeed());
     on('tab-row-about',          () => toast('OrgonLink v0.1.0'));
     on('tab-btn-reset',          resetWallet);
@@ -2832,6 +2922,50 @@ function renderAssetsTab() {
 }
 
 // ─── History tab ──────────────────────────────────
+
+function renderResourcesBlock() {
+  const r = state.resources;
+  if (!r) {
+    // Загружаем ресурсы если ещё не загружены
+    sendToSW('trx.getAccountResource', { address: state.address?.base58 })
+      .then(res => {
+        state.resources = res;
+        const el = document.getElementById('tab-resources-block');
+        if (el) el.innerHTML = renderResourcesBlock();
+      }).catch(() => {});
+    return '<div class="fs11 muted text-center" style="padding:8px;">Загрузка ресурсов...</div>';
+  }
+
+  const bwPct = r.bwTotal > 0 ? Math.min(100, Math.round(r.bwAvail / r.bwTotal * 100)) : 0;
+  const enPct = r.energyLimit > 0 ? Math.min(100, Math.round(r.energyAvail / r.energyLimit * 100)) : 0;
+
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <div class="card-sm" style="cursor:pointer;" onclick="">
+        <div class="flex justify-between flex-center mb4">
+          <span class="fs11 muted">Bandwidth</span>
+          <span class="fs11 accent fw600">${r.bwAvail.toLocaleString()}</span>
+        </div>
+        <div style="height:3px;background:var(--border2);border-radius:2px;">
+          <div style="height:100%;background:var(--accent);border-radius:2px;width:${bwPct}%;"></div>
+        </div>
+        ${r.frozenBandwidth > 0 ? `<div class="fs11 muted mt4">❄️ ${r.frozenBandwidthOrgon.toFixed(2)} ORGON</div>` : ''}
+      </div>
+      <div class="card-sm">
+        <div class="flex justify-between flex-center mb4">
+          <span class="fs11 muted">Energy</span>
+          <span class="fs11 fw600" style="color:var(--amber);">${r.energyAvail.toLocaleString()}</span>
+        </div>
+        <div style="height:3px;background:var(--border2);border-radius:2px;">
+          <div style="height:100%;background:var(--amber);border-radius:2px;width:${enPct}%;"></div>
+        </div>
+        ${r.frozenEnergy > 0 ? `<div class="fs11 muted mt4">❄️ ${r.frozenEnergyOrgon.toFixed(2)} ORGON</div>` : ''}
+      </div>
+    </div>
+    ${r.tronPower > 0 ? `<div class="flex justify-between flex-center mt8 px16" style="padding:6px 0;"><span class="fs11 muted">Tron Power (голоса)</span><span class="fs11 fw600 accent">${r.tronPowerOrgon.toFixed(2)} TP</span></div>` : ''}
+  `;
+}
+
 function renderHistoryTab() {
   if (state.isLoading) return '<div class="p16 text-center muted loading" style="padding:40px;">Загрузка...</div>';
 
@@ -2936,6 +3070,28 @@ function renderSettingsTab() {
       </div>
       <div class="settings-row-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
     </div>
+
+    <div class="settings-row" id="tab-row-staking">
+        <div class="settings-row-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        </div>
+        <div class="settings-row-text">
+          <div class="settings-row-title">Заморозка / Ресурсы</div>
+          <div class="settings-row-sub">Energy, Bandwidth, Tron Power</div>
+        </div>
+        <div class="settings-row-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
+      </div>
+
+    <div class="settings-row" id="tab-row-voting">
+        <div class="settings-row-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+        </div>
+        <div class="settings-row-text">
+          <div class="settings-row-title">Голосование</div>
+          <div class="settings-row-sub">Валидаторы, награды, Tron Power</div>
+        </div>
+        <div class="settings-row-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
+      </div>
 
     <div class="settings-row" id="tab-row-export-key">
       <div class="settings-row-icon">
@@ -3287,6 +3443,449 @@ function copyAddress() {
 // ═══════════════════════════════════════════════════
 //  EXPORT PRIVATE KEY / SEED PHRASE
 // ═══════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════
+//  STAKING: Freeze / Unfreeze / Resources
+// ═══════════════════════════════════════════════════
+
+
+// ═══════════════════════════════════════════════════
+//  VOTING: Голосование за валидаторов
+// ═══════════════════════════════════════════════════
+
+async function openVoting() {
+  showScreen('screen-voting');
+  await loadVotingData();
+}
+
+async function loadVotingData() {
+  // Сначала загружаем ресурсы (нужны для TP счётчиков)
+  if (!state.resources) {
+    try {
+      state.resources = await sendToSW('trx.getAccountResource',
+        { address: state.address?.base58 });
+    } catch {}
+  }
+  // Параллельно загружаем остальное
+  await Promise.all([
+    loadWitnesses(),
+    loadCurrentVotes(),
+    loadVotingReward(),
+  ]);
+  updateVoteTP();
+}
+
+async function loadWitnesses() {
+  document.getElementById('witness-list').innerHTML =
+    '<div class="p16 text-center muted loading" style="padding:32px;">Загрузка...</div>';
+  try {
+    const witnesses = await sendToSW('wallet.listWitnesses');
+    console.log('[Voting] raw witnesses count:', witnesses?.length, 'first:', JSON.stringify(witnesses?.[0]).slice(0, 100));
+    state.witnesses = (witnesses ?? [])
+      .filter(w => w && w.address)
+      .sort((a, b) => (b.voteCount ?? 0) - (a.voteCount ?? 0));
+    console.log('[Voting] filtered witnesses:', state.witnesses.length);
+    renderWitnessList(state.witnesses);
+    document.getElementById('vote-witness-count').textContent =
+      state.witnesses.length + ' валидаторов';
+  } catch (e) {
+    document.getElementById('witness-list').innerHTML =
+      `<div class="p16 text-center muted">Ошибка загрузки: ${e.message}</div>`;
+  }
+}
+
+async function loadCurrentVotes() {
+  try {
+    const votes = await sendToSW('wallet.getAccountVotes');
+    state.currentVotes = votes ?? [];
+    // Инициализируем черновик из текущих голосов
+    if (Object.keys(state.myVotes).length === 0 && votes.length > 0) {
+      votes.forEach(v => {
+        state.myVotes[v.vote_address] = v.vote_count;
+      });
+    }
+    renderMyVotes();
+  } catch {}
+}
+
+async function loadVotingReward() {
+  try {
+    const reward = await sendToSW('wallet.getReward');
+    state.votingReward = reward ?? 0;
+    document.getElementById('vote-reward').textContent =
+      (state.votingReward / 1e6).toFixed(6) + ' ORGON';
+    document.getElementById('btn-claim-rewards').style.display =
+      state.votingReward > 0 ? 'block' : 'none';
+  } catch {}
+}
+
+function updateVoteTP() {
+  const r = state.resources;
+  if (!r) return; // ресурсы ещё не загружены
+  const tpTotal = Math.floor(r.tronPowerOrgon ?? 0);
+  const tpUsed  = Object.values(state.myVotes ?? {}).reduce((s, v) => s + Number(v || 0), 0);
+  const tpAvail = Math.max(0, tpTotal - tpUsed);
+
+  document.getElementById('vote-tp-total').textContent = tpTotal + ' TP';
+  document.getElementById('vote-tp-used').textContent  = tpUsed + ' TP';
+  document.getElementById('vote-tp-avail').textContent = tpAvail + ' TP';
+  document.getElementById('vote-distributed').textContent = tpUsed + ' / ' + tpTotal + ' TP';
+
+  const bar = document.getElementById('vote-submit-bar');
+  if (bar) bar.style.display = tpUsed > 0 ? 'block' : 'none';
+}
+
+function renderWitnessList(witnesses) {
+  const search = document.getElementById('vote-search')?.value?.toLowerCase() ?? '';
+  const filtered = search
+    ? witnesses.filter(w =>
+        (w.url ?? '').toLowerCase().includes(search) ||
+        (w.address ?? '').toLowerCase().includes(search))
+    : witnesses;
+
+  if (filtered.length === 0) {
+    document.getElementById('witness-list').innerHTML =
+      '<div class="p16 text-center muted">Валидаторы не найдены</div>';
+    return;
+  }
+
+  document.getElementById('witness-list').innerHTML = filtered.filter(w => w?.address).map((w, i) => {
+    const name    = extractWitnessName(w.url ?? w.address);
+    const votes   = (w.voteCount ?? 0).toLocaleString();
+    const produce = w.totalProduced ?? 0;
+    const missed  = w.totalMissed ?? 0;
+    const rate    = produce > 0 ? Math.round(produce / (produce + missed) * 100) : 0;
+    const isTop27 = w.isJobs || i < 27;
+    const myVote  = state.myVotes[w.address] ?? 0;
+
+    return `
+    <div class="witness-row" data-addr="${w.address}" style="
+      display:flex;align-items:center;gap:10px;
+      padding:11px 16px;border-bottom:1px solid var(--border);
+      cursor:pointer;transition:background .12s;
+      ${myVote > 0 ? 'background:var(--accent-dim);' : ''}
+    ">
+      <!-- Ранг -->
+      <div style="min-width:28px;text-align:center;">
+        <div class="mono fw600 fs12" style="color:${isTop27 ? 'var(--accent)' : 'var(--text3)'};">#${i+1}</div>
+      </div>
+      <!-- Иконка -->
+      <div style="width:34px;height:34px;border-radius:50%;flex-shrink:0;
+        background:${isTop27 ? 'var(--accent-dim)' : 'var(--bg3)'};
+        display:flex;align-items:center;justify-content:center;
+        font-size:13px;font-weight:700;font-family:var(--mono);
+        color:${isTop27 ? 'var(--accent)' : 'var(--text3)'};">
+        ${name.slice(0,2).toUpperCase()}
+      </div>
+      <!-- Инфо -->
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:600;
+          overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          ${name}
+          ${isTop27 ? '<span style="font-size:9px;background:var(--accent-dim);color:var(--accent);padding:1px 5px;border-radius:3px;margin-left:4px;">SR</span>' : ''}
+        </div>
+        <div style="font-size:11px;color:var(--text2);margin-top:2px;">
+          ${votes} голосов · ${rate}% надёжность
+        </div>
+      </div>
+      <!-- Голос -->
+      <div style="text-align:right;flex-shrink:0;">
+        ${myVote > 0
+          ? `<div class="mono fw600 fs12 accent">${myVote} TP</div>
+             <div style="font-size:10px;color:var(--accent);cursor:pointer;"
+               data-vote-addr="${w.address}">✕ убрать</div>`
+          : `<button class="btn btn-secondary" data-vote-addr="${w.address}"
+               style="height:28px;font-size:11px;padding:0 10px;width:auto;">
+               Голос
+             </button>`
+        }
+      </div>
+    </div>`;
+  }).join('');
+
+  // Привязываем клики
+  document.querySelectorAll('[data-vote-addr]').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      const addr = el.dataset.voteAddr;
+      if (el.textContent.includes('убрать') || el.textContent.includes('✕')) {
+        removeVote(addr);
+      } else {
+        openVoteInput(addr);
+      }
+    });
+  });
+}
+
+function extractWitnessName(url) {
+  if (!url) return 'Unknown';
+  try {
+    const u = new URL(url.startsWith('http') ? url : 'https://' + url);
+    return u.hostname.replace(/^www\./, '');
+  } catch {
+    return url.length > 20 ? url.slice(0, 20) + '...' : url;
+  }
+}
+
+function renderMyVotes() {
+  const entries = Object.entries(state.myVotes ?? {}).filter(([, v]) => v > 0);
+  const section = document.getElementById('my-votes-section');
+  const list    = document.getElementById('my-votes-list');
+  if (!section || !list) return;
+
+  section.style.display = entries.length > 0 ? 'block' : 'none';
+
+  list.innerHTML = entries.map(([addr, count]) => {
+    const w    = state.witnesses.find(x => x.address === addr);
+    const name = w ? extractWitnessName(w.url ?? addr) : addr.slice(0, 10) + '...';
+    return `
+    <div style="display:flex;align-items:center;justify-content:space-between;
+      padding:10px 16px;border-bottom:1px solid var(--border);">
+      <div>
+        <div class="fs13 fw600">${name}</div>
+        <div class="mono fs11 muted">${addr.slice(0,8)}...${addr.slice(-4)}</div>
+      </div>
+      <div style="text-align:right;">
+        <div class="mono fw600 accent fs13">${count} TP</div>
+        <div class="fs11" style="color:var(--red);cursor:pointer;" data-remove-vote="${addr}">убрать</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('[data-remove-vote]').forEach(el => {
+    el.addEventListener('click', () => removeVote(el.dataset.removeVote));
+  });
+}
+
+function openVoteInput(addr) {
+  const r = state.resources;
+  const tpTotal = r ? Math.floor(r.tronPowerOrgon) : 0;
+  const tpUsed  = Object.values(state.myVotes ?? {}).reduce((s, v) => s + Number(v || 0), 0);
+  const tpAvail = tpTotal - tpUsed + (state.myVotes[addr] ?? 0);
+
+  if (tpAvail <= 0) {
+    toast('Нет доступных TP. Заморозьте ORGON.', 'error');
+    return;
+  }
+
+  const input = prompt(
+    `Сколько голосов (TP) отдать за этого валидатора?\nДоступно: ${tpAvail} TP`,
+    state.myVotes[addr] ?? ''
+  );
+
+  if (input === null) return;
+  const count = parseInt(input);
+  if (isNaN(count) || count <= 0) { delete state.myVotes[addr]; }
+  else if (count > tpAvail)       { toast(`Максимум ${tpAvail} TP`, 'error'); return; }
+  else                             { state.myVotes[addr] = count; }
+
+  renderMyVotes();
+  renderWitnessList(state.witnesses);
+  updateVoteTP();
+}
+
+function removeVote(addr) {
+  delete state.myVotes[addr];
+  renderMyVotes();
+  renderWitnessList(state.witnesses);
+  updateVoteTP();
+}
+
+function clearMyVotes() {
+  state.myVotes = {};
+  renderMyVotes();
+  renderWitnessList(state.witnesses);
+  updateVoteTP();
+}
+
+function filterWitnesses() {
+  renderWitnessList(state.witnesses);
+}
+
+async function submitVotes() {
+  const votes = Object.entries(state.myVotes ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([vote_address, vote_count]) => ({ vote_address, vote_count }));
+
+  if (votes.length === 0) { toast('Нет распределённых голосов', 'error'); return; }
+
+  const btn = document.getElementById('btn-submit-votes');
+  if (btn) { btn.disabled = true; btn.textContent = 'Голосование...'; }
+
+  try {
+    await sendToSW('wallet.voteWitness', { votes });
+    toast(`✓ Проголосовано за ${votes.length} валидаторов!`, 'success');
+
+    // Голоса зафиксированы — сбрасываем черновик и скрываем кнопку
+    state.myVotes = {};
+
+    // Обновляем данные с блокчейна
+    await loadCurrentVotes();
+    await loadVotingReward();
+    updateVoteTP();
+    renderWitnessList(state.witnesses);
+
+    // Скрываем панель с кнопкой
+    const bar = document.getElementById('vote-submit-bar');
+    if (bar) bar.style.display = 'none';
+
+  } catch (e) {
+    toast(e.message || 'Ошибка голосования', 'error');
+    // При ошибке — восстанавливаем кнопку
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> Проголосовать';
+    }
+  }
+}
+
+async function claimVotingRewards() {
+  const btn = document.getElementById('btn-claim-rewards');
+  if (btn) { btn.disabled = true; btn.textContent = 'Получение...'; }
+  try {
+    await sendToSW('wallet.withdrawVotingRewards');
+    toast('✓ Награды получены!', 'success');
+    state.votingReward = 0;
+    document.getElementById('vote-reward').textContent = '0.000000 ORGON';
+    document.getElementById('btn-claim-rewards').style.display = 'none';
+    await loadBalance();
+  } catch (e) {
+    toast(e.message || 'Ошибка вывода наград', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Получить'; }
+  }
+}
+
+async function openStaking() {
+  showScreen('screen-staking');
+  await loadResources();
+}
+
+async function loadResources() {
+  try {
+    const r = await sendToSW('trx.getAccountResource', { address: state.address?.base58 });
+    state.resources = r;
+    renderResources(r);
+  } catch (e) {
+    console.warn('[Staking] loadResources failed:', e.message);
+  }
+}
+
+function renderResources(r) {
+  if (!r) return;
+
+  // Bandwidth bar
+  const bwPct = r.bwTotal > 0 ? Math.min(100, Math.round(r.bwAvail / r.bwTotal * 100)) : 0;
+  document.getElementById('stk-bw-avail').textContent = r.bwAvail.toLocaleString() + ' / ' + r.bwTotal.toLocaleString();
+  document.getElementById('stk-bw-bar').style.width = bwPct + '%';
+  document.getElementById('stk-bw-frozen').textContent = r.frozenBandwidthOrgon.toFixed(2) + ' ORGON';
+
+  // Energy bar
+  const enPct = r.energyLimit > 0 ? Math.min(100, Math.round(r.energyAvail / r.energyLimit * 100)) : 0;
+  document.getElementById('stk-en-avail').textContent = r.energyAvail.toLocaleString() + ' / ' + r.energyLimit.toLocaleString();
+  document.getElementById('stk-en-bar').style.width = enPct + '%';
+  document.getElementById('stk-en-frozen').textContent = r.frozenEnergyOrgon.toFixed(2) + ' ORGON';
+
+  // Tron Power
+  document.getElementById('stk-tp').textContent = r.tronPowerOrgon.toFixed(2) + ' TP';
+  document.getElementById('stk-balance').textContent = 'Баланс: ' + (state.balanceSun / 1e6).toFixed(2) + ' ORGON';
+
+  updateUnfreezeMax();
+}
+
+function updateFreezePreview() {
+  const amount = parseFloat(document.getElementById('stk-freeze-amount')?.value) || 0;
+  const el = document.getElementById('stk-will-get');
+  if (el) el.textContent = amount > 0
+    ? `${amount.toFixed(2)} TP + ${state.stakingResource === 'ENERGY' ? 'Energy' : 'Bandwidth'}`
+    : '— TP + ресурс';
+}
+
+function updateUnfreezeMax() {
+  const r = state.resources;
+  if (!r) return;
+  const max = state.unStakingResource === 'ENERGY' ? r.frozenEnergyOrgon : r.frozenBandwidthOrgon;
+  const el = document.getElementById('stk-avail-unfreeze');
+  if (el) el.textContent = max.toFixed(2) + ' ORGON';
+}
+
+async function loadWithdrawable() {
+  try {
+    const result = await sendToSW('wallet.getCanWithdrawUnfreeze');
+    const amount = (result?.amount ?? 0) / 1e6;
+    const section = document.getElementById('stk-withdraw-section');
+    const amtEl   = document.getElementById('stk-withdraw-amount');
+    if (section) section.style.display = amount > 0 ? 'block' : 'none';
+    if (amtEl)   amtEl.textContent = amount.toFixed(6) + ' ORGON';
+  } catch {}
+}
+
+async function doFreeze() {
+  const amountOrgon = parseFloat(document.getElementById('stk-freeze-amount')?.value);
+  if (!amountOrgon || amountOrgon < 1) { toast('Минимум 1 ORGON', 'error'); return; }
+  if (amountOrgon * 1e6 > state.balanceSun) { toast('Недостаточно средств', 'error'); return; }
+
+  const btn = document.getElementById('btn-do-freeze');
+  if (btn) { btn.disabled = true; btn.textContent = 'Заморозка...'; }
+
+  try {
+    const result = await sendToSW('wallet.freezeBalanceV2', {
+      amount:   Math.round(amountOrgon * 1e6),
+      resource: state.stakingResource,
+    });
+    toast(`✓ Заморожено ${amountOrgon} ORGON для ${state.stakingResource}`, 'success');
+    document.getElementById('stk-freeze-amount').value = '';
+    await loadBalance();
+    await loadResources();
+  } catch (e) {
+    toast(e.message || 'Ошибка заморозки', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '❄️ Заморозить'; }
+  }
+}
+
+async function doUnfreeze() {
+  const amountOrgon = parseFloat(document.getElementById('stk-unfreeze-amount')?.value);
+  if (!amountOrgon || amountOrgon < 1) { toast('Введите сумму', 'error'); return; }
+
+  const r = state.resources;
+  const max = r ? (state.unStakingResource === 'ENERGY' ? r.frozenEnergyOrgon : r.frozenBandwidthOrgon) : 0;
+  if (amountOrgon > max) { toast(`Максимум ${max.toFixed(2)} ORGON`, 'error'); return; }
+
+  const btn = document.getElementById('btn-do-unfreeze');
+  if (btn) { btn.disabled = true; btn.textContent = 'Разморозка...'; }
+
+  try {
+    await sendToSW('wallet.unfreezeBalanceV2', {
+      amount:   Math.round(amountOrgon * 1e6),
+      resource: state.unStakingResource,
+    });
+    toast(`✓ Разморозка ${amountOrgon} ORGON начата. Средства придут через 14 дней.`, 'success');
+    document.getElementById('stk-unfreeze-amount').value = '';
+    await loadResources();
+    await loadWithdrawable();
+  } catch (e) {
+    toast(e.message || 'Ошибка разморозки', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔥 Разморозить'; }
+  }
+}
+
+async function doWithdraw() {
+  const btn = document.getElementById('btn-do-withdraw');
+  if (btn) { btn.disabled = true; btn.textContent = 'Получение...'; }
+  try {
+    await sendToSW('wallet.withdrawExpireUnfreeze');
+    toast('✓ ORGON успешно выведен на баланс!', 'success');
+    document.getElementById('stk-withdraw-section').style.display = 'none';
+    await loadBalance();
+  } catch (e) {
+    toast(e.message || 'Ошибка вывода', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Получить'; }
+  }
+}
 
 function openExportKey() {
   // Сбрасываем состояние экрана

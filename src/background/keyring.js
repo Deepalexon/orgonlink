@@ -270,3 +270,16 @@ function hexToBytes(hex) {
 function bytesToHex(bytes) {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
 }
+
+/**
+ * Конвертировать hex адрес (73xxxx...) в base58 (oXxx...)
+ * Использует тот же bs58check что и _addressFromPrivKey
+ */
+export function hexToBase58(hexAddr) {
+  if (!hexAddr) return hexAddr;
+  // Уже base58 если начинается с 'o' (Orgon) или не является hex строкой
+  if (!/^[0-9a-fA-F]{40,42}$/.test(hexAddr.replace(/^0x/, ''))) return hexAddr;
+  const clean = hexAddr.replace(/^0x/, '');
+  const bytes = new Uint8Array(clean.match(/.{1,2}/g).map(b => parseInt(b, 16)));
+  return bs58check.encode(bytes);
+}

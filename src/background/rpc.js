@@ -228,6 +228,206 @@ export class OrgonRPC {
     return txs;
   }
 
+
+  // ═══════════════════════════════════════════════════
+  //  РЕСУРСЫ: Energy, Bandwidth, Staking
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Получить ресурсы аккаунта: Energy, Bandwidth, замороженные ORGON, Tron Power
+   * Возвращает: { energy, bandwidth, frozenEnergy, frozenBandwidth, tronPower, ... }
+   */
+  async getAccountResource(address) {
+    const [account, resource] = await Promise.all([
+      this.call('wallet/getaccount', { address, visible: true }),
+      this.call('wallet/getaccountresource', { address, visible: true }),
+    ]);
+
+    // Stake 2.0 формат frozenV2 (Orgon):
+    // {amount: N}                  → Bandwidth (нет type)
+    // {type: "ENERGY", amount: N}  → Energy
+    // {type: "TRON_POWER"}         → голоса без amount (игнорируем)
+    const frozenV2 = account?.frozen_v2 ?? account?.frozenV2 ?? [];
+    let frozenEnergy    = 0;
+    let frozenBandwidth = 0;
+    for (const f of frozenV2) {
+      const fType = (f.type ?? '').toUpperCase();
+      const amt   = Number(f.amount ?? 0);
+      if (fType === 'ENERGY')                       frozenEnergy    += amt;
+      else if (fType === '' || fType === 'BANDWIDTH') frozenBandwidth += amt;
+      // TRON_POWER — не суммируем отдельно, уже входит в Energy+Bandwidth
+    }
+
+    // Альтернативный формат account_resource (старый Stake 1.0)
+    const acRes = account?.account_resource ?? {};
+    if (acRes.frozen_balance_for_energy?.frozen_balance) {
+      frozenEnergy += Number(acRes.frozen_balance_for_energy.frozen_balance);
+    }
+
+    // Tron Power = сумма всех замороженных (для голосования)
+    const tronPower = frozenEnergy + frozenBandwidth;
+
+    // Bandwidth
+    const bwLimit    = resource?.NetLimit ?? 0;
+    const bwUsed     = resource?.NetUsed  ?? 0;
+    const bwFree     = resource?.freeNetLimit ?? 1500;
+    const bwFreeUsed = resource?.freeNetUsed  ?? 0;
+    const bwTotal    = bwLimit + bwFree;
+    const bwAvail    = Math.max(0, bwLimit - bwUsed) + Math.max(0, bwFree - bwFreeUsed);
+
+    // Energy
+    const energyLimit = resource?.EnergyLimit ?? 0;
+    const energyUsed  = resource?.EnergyUsed  ?? 0;
+    const energyAvail = Math.max(0, energyLimit - energyUsed);
+
+    // Анфриз в процессе (unfreezing_v2)
+    const unfreezingV2 = account?.unfreezing_v2 ?? [];
+
+    return {
+      // Energy
+      energyLimit,
+      energyUsed,
+      energyAvail,
+      frozenEnergy,           // заморожено для Energy (SUN)
+      frozenEnergyOrgon: frozenEnergy / 1e6,
+
+      // Bandwidth
+      bwLimit, bwUsed, bwFree, bwFreeUsed, bwTotal, bwAvail,
+      frozenBandwidth,        // заморожено для Bandwidth (SUN)
+      frozenBandwidthOrgon: frozenBandwidth / 1e6,
+
+      // Голосование
+      tronPower,              // суммарный Tron Power (SUN)
+      tronPowerOrgon: tronPower / 1e6,
+
+      // Анфриз в ожидании
+      unfreezingV2,
+
+      // Сырые данные
+      _account:  account,
+      _resource: resource,
+    };
+  }
+
+  /**
+   * Заморозить ORGON для получения Energy или Bandwidth
+   * resource: 'ENERGY' | 'BANDWIDTH'
+   * amount: в SUN (1 ORGON = 1_000_000 SUN)
+   */
+  freezeBalanceV2(ownerAddress, amount, resource) {
+    return this.call('wallet/freezebalancev2', {
+      owner_address:  ownerAddress,
+      frozen_balance: amount,
+      resource,
+      visible: true,
+    });
+  }
+
+  /**
+   * Разморозить ORGON (начать процесс — средства придут через 14 дней)
+   * resource: 'ENERGY' | 'BANDWIDTH'
+   * amount: в SUN
+   */
+  unfreezeBalanceV2(ownerAddress, amount, resource) {
+    return this.call('wallet/unfreezebalancev2', {
+      owner_address:    ownerAddress,
+      unfreeze_balance: amount,
+      resource,
+      visible: true,
+    });
+  }
+
+  /**
+   * Забрать разморозившиеся ORGON (после истечения 14 дней)
+   */
+  withdrawExpireUnfreeze(ownerAddress) {
+    return this.call('wallet/withdrawexpireunfreeze', {
+      owner_address: ownerAddress,
+      visible: true,
+    });
+  }
+
+  /**
+   * Сколько ORGON можно разморозить прямо сейчас
+   */
+  getCanWithdrawUnfreezeAmount(ownerAddress) {
+    return this.call('wallet/getcanwithdrawunfreezeamount', {
+      owner_address: ownerAddress,
+      timestamp:     Date.now(),
+      visible:       true,
+    });
+  }
+
+  // ═══════════════════════════════════════════════════
+  //  ГОЛОСОВАНИЕ за валидаторов
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Список всех валидаторов (witnesses/super representatives)
+   * Возвращает отсортированный по голосам массив
+   */
+  async listWitnesses() {
+    // getpaginatednowwitnesslist — реальные голоса, сортировка по убыванию
+    try {
+      const data = await this.call('wallet/getpaginatednowwitnesslist', {
+        offset: 0, limit: 100, visible: true,
+      });
+      const list = data?.witnesses ?? data?.data ?? [];
+      if (list.length > 0) {
+        console.log('[Voting] witnesses[0]:', JSON.stringify(list[0]).slice(0, 150));
+        return list;
+      }
+    } catch {
+      // getpaginatednowwitnesslist не поддерживается нодой — используем listwitnesses
+    }
+    // Фолбэк: обычный listwitnesses
+    const data = await this.call('wallet/listwitnesses', { visible: true });
+    const list = data?.witnesses ?? [];
+    console.log('[Voting] listwitnesses[0]:', JSON.stringify(list[0]).slice(0, 150));
+    return list.sort((a, b) => (b.voteCount ?? 0) - (a.voteCount ?? 0));
+  }
+
+  /**
+   * Получить текущие голоса аккаунта (за кого проголосовал)
+   * Возвращает массив { vote_address, vote_count }
+   */
+  async getAccountVotes(address) {
+    const account = await this.call('wallet/getaccount', { address, visible: true });
+    return account?.votes ?? [];
+  }
+
+  /**
+   * Получить накопленные награды за голосование
+   */
+  async getReward(address) {
+    const data = await this.call('wallet/getReward', { address, visible: true });
+    return data?.reward ?? 0;
+  }
+
+  /**
+   * Проголосовать за валидаторов
+   * votes: [{ vote_address: 'oXxx...', vote_count: 10 }, ...]
+   * Сумма vote_count не может превышать Tron Power аккаунта
+   */
+  voteWitness(ownerAddress, votes) {
+    return this.call('wallet/votewitnessaccount', {
+      owner_address: ownerAddress,
+      votes,
+      visible: true,
+    });
+  }
+
+  /**
+   * Забрать награды за голосование (voting rewards)
+   */
+  withdrawVotingRewards(ownerAddress) {
+    return this.call('wallet/withdrawbalance', {
+      owner_address: ownerAddress,
+      visible: true,
+    });
+  }
+
+
 }
 
 class RPCError extends Error {
