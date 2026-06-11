@@ -1304,6 +1304,114 @@
   </div>
 </div>
 
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: ADD oRC-20 TOKEN
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-add-token">
+  <div class="top-bar">
+    <button class="back-btn" id="btn-back-from-add-token">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Добавить токен</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area p16">
+    <div class="input-group mb12">
+      <label class="input-label">Адрес контракта oRC-20</label>
+      <input type="text" id="add-token-contract" placeholder="oXxx... адрес смарт-контракта">
+    </div>
+    <button class="btn btn-secondary mb8" id="btn-fetch-token-info">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      Получить информацию
+    </button>
+
+    <div id="token-info-preview" style="display:none;" class="card mb14">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div class="fs11 muted">Название</div>
+          <div class="fw600" id="preview-token-name">—</div>
+        </div>
+        <div>
+          <div class="fs11 muted">Символ</div>
+          <div class="fw600 accent" id="preview-token-symbol">—</div>
+        </div>
+        <div>
+          <div class="fs11 muted">Decimals</div>
+          <div class="fw600" id="preview-token-decimals">—</div>
+        </div>
+        <div>
+          <div class="fs11 muted">Ваш баланс</div>
+          <div class="mono fw600 accent" id="preview-token-balance">—</div>
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-confirm-add-token" style="display:none;">
+      Добавить токен
+    </button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: SEND oRC-20 TOKEN
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-send-token">
+  <div class="top-bar">
+    <button class="back-btn" id="btn-back-from-send-token">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;" id="send-token-title">Отправить токен</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area p16">
+    <div class="card mb14">
+      <div class="label mb8">Токен</div>
+      <div class="flex flex-center gap8">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent-dim);
+          display:flex;align-items:center;justify-content:center;
+          font-size:12px;font-weight:700;color:var(--accent);flex-shrink:0;"
+          id="send-token-icon">?</div>
+        <div>
+          <div class="fw600" id="send-token-name">—</div>
+          <div class="mono fs11 muted" id="send-token-contract-addr">—</div>
+        </div>
+        <div style="margin-left:auto;text-align:right;">
+          <div class="mono fw600 accent fs13" id="send-token-balance-display">—</div>
+          <div class="fs11 muted">Баланс</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-group mb12">
+      <label class="input-label">Получатель</label>
+      <input type="text" id="send-token-to" placeholder="oXxx... адрес получателя">
+    </div>
+    <div class="input-group mb12">
+      <div class="flex justify-between flex-center">
+        <label class="input-label">Сумма</label>
+        <span class="send-max fs11" id="btn-send-token-max">Весь баланс</span>
+      </div>
+      <div class="amount-input-wrap">
+        <input type="number" id="send-token-amount" placeholder="0.000000" style="padding-right:80px;">
+        <span class="amount-suffix" id="send-token-suffix">TOKEN</span>
+      </div>
+    </div>
+
+    <div class="card-sm mb14" style="font-size:12px;">
+      <div class="fee-row"><span class="muted">Комиссия (Energy)</span><span class="mono">≈ 10–30 Energy</span></div>
+      <div class="fee-row" style="border:none;"><span class="muted">Время</span><span class="accent fs12">~3 сек</span></div>
+    </div>
+
+    <button class="btn btn-primary" id="btn-send-token-submit">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      Отправить
+    </button>
+  </div>
+</div>
+
 <!-- Toast -->
 <div id="toast"></div>
 

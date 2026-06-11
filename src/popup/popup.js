@@ -2326,6 +2326,11 @@ const state = {
   myVotes: {},
   currentVotes: [],
   votingReward: 0,
+
+  // oRC-20 токены
+  orc20Tokens: [],
+  currentToken: null,
+  _pendingToken: null,
 };
 
 
@@ -2557,6 +2562,21 @@ function bindEvents() {
   on('btn-do-unfreeze',  'click', doUnfreeze);
   on('btn-do-withdraw',  'click', doWithdraw);
 
+  // ── Add Token ──
+  on('btn-back-from-add-token',  'click', () => showScreen('screen-wallet'));
+  on('btn-fetch-token-info',     'click', fetchTokenInfo);
+  on('btn-confirm-add-token',    'click', confirmAddToken);
+
+  // ── Send Token ──
+  on('btn-back-from-send-token', 'click', () => showScreen('screen-wallet'));
+  on('btn-send-token-max',       'click', () => {
+    if (state.currentToken) {
+      document.getElementById('send-token-amount').value =
+        state.currentToken.balanceFloat ?? 0;
+    }
+  });
+  on('btn-send-token-submit',    'click', sendToken);
+
   // ── Export Key ──
   on('btn-back-from-export-key', 'click', () => showScreen('screen-wallet'));
   on('btn-reveal-key', 'click', revealPrivateKey);
@@ -2623,8 +2643,12 @@ async function init() {
       state.address = swState.selectedAddress;
       state.network = 'mainnet';
       showScreen('screen-wallet');
+      // Сначала загружаем сохранённые токены из storage
+      await loadSavedTokens();
       showWalletTab('assets');
       loadBalance();
+      // Обновляем балансы токенов через 1 сек
+      setTimeout(loadTokenBalances, 1000);
       // Автообновление баланса каждые 10 секунд пока popup открыт
       setInterval(() => {
         if (state.currentScreen === 'screen-wallet') loadBalance();
@@ -2696,8 +2720,10 @@ async function createWallet() {
     });
     state.address = result.address;
     showScreen('screen-wallet');
+    await loadSavedTokens();
     showWalletTab('assets');
     loadBalance();
+    setTimeout(loadTokenBalances, 1000);
     toast('Кошелёк создан!', 'success');
   } catch (e) {
     toast(e.message, 'error');
@@ -2724,6 +2750,7 @@ async function importWallet() {
     }
     state.address = result.address;
     showScreen('screen-wallet');
+    await loadSavedTokens();
     showWalletTab('assets');
     loadBalance();
     toast('Кошелёк импортирован', 'success');
@@ -2753,6 +2780,7 @@ async function unlockWallet() {
     state.address = s.selectedAddress;
     document.getElementById('unlock-password').value = '';
     showScreen('screen-wallet');
+    await loadSavedTokens();
     showWalletTab('assets');
     loadBalance();
   } catch (e) {
@@ -2783,12 +2811,23 @@ function bindTabEvents(tab) {
 
   if (tab === 'assets') {
     on('tab-copy-addr',      copyAddress);
+    // Обновляем балансы токенов при каждом открытии вкладки
+    if (state.orc20Tokens.length > 0) setTimeout(loadTokenBalances, 500);
+    // Клик по строке токена → открыть экран отправки
+    document.getElementById('wallet-tab-content')?.addEventListener('click', e => {
+      const row = e.target.closest('[data-token-contract]');
+      if (row) {
+        const contract = row.dataset.tokenContract;
+        const token = state.orc20Tokens.find(t => t.contract === contract);
+        if (token) openSendToken(token);
+      }
+    });
     on('tab-btn-send',       openSend);
     on('tab-btn-staking',    openStaking);
     on('tab-btn-receive',    () => { showScreen('screen-receive'); renderQR(); });
     on('tab-btn-swap',       () => toast('Обмен — скоро'));
     on('tab-btn-staking',    openStaking);
-    on('tab-btn-add-token',  () => toast('Добавление токена — скоро'));
+    on('tab-btn-add-token',  () => showScreen('screen-add-token'));
   }
 
   if (tab === 'history') {
@@ -2850,17 +2889,17 @@ function renderAssetsTab() {
   const price = state.orgonPriceUsd ?? 0;
   const usd = (state.balanceSun / 1_000_000 * price).toFixed(2);
 
-  const tokensHtml = state.tokens.length > 0
-    ? state.tokens.map(t => `
-      <div class="token-row">
-        <div class="token-icon orc20">${t.symbol.slice(0,2)}</div>
+  const tokensHtml = state.orc20Tokens.length > 0
+    ? state.orc20Tokens.map(t => `
+      <div class="token-row" data-token-contract="${t.contract}" style="cursor:pointer;">
+        <div class="token-icon orc20">${(t.symbol ?? 'ORC').slice(0, 3)}</div>
         <div class="token-info">
-          <div class="token-name">${t.symbol}</div>
-          <div class="token-sub">${t.name}</div>
+          <div class="token-name">${t.name ?? t.symbol}</div>
+          <div class="token-sub">${(t.contract ?? '').slice(0,8)}...${(t.contract ?? '').slice(-4)}</div>
         </div>
         <div class="token-right">
-          <div class="token-amount">${t.balance}</div>
-          <div class="token-usd">$${t.usd}</div>
+          <div class="token-amount">${(t.balanceFloat ?? 0).toFixed(6)}</div>
+          <div class="token-usd">${t.symbol}</div>
         </div>
       </div>`).join('')
     : `<div class="p16 text-center muted fs12" style="padding:24px 16px;">
@@ -3214,6 +3253,14 @@ function updatePriceDisplay() {
 async function loadBalance() {
   if (!state.address) return;
 
+  // Параллельно запрашиваем полный аккаунт для диагностики токенов
+  sendToSW('trx.getAccountFull', { address: state.address.base58 })
+    .then(data => {
+      console.log('[Popup] trc20 tokens:', data?.trc20);
+      console.log('[Popup] account keys:', Object.keys(data ?? {}).join(', '));
+    })
+    .catch(() => {});
+
   try {
     const raw = await sendToSW('trx.getBalance', { address: state.address.base58 });
     // raw может быть: число, строка, undefined, null, объект {balance:N}
@@ -3263,6 +3310,18 @@ async function loadTxHistory() {
     // Для сравнения берём hex адрес: убираем префикс 73 и сравниваем
     const myHex = state.address.hex?.toLowerCase() ?? '';
 
+    // Строим Map: hex_контракта → токен (для быстрого поиска в парсере)
+    // hex = base58ToHex уже есть в SW, но в popup нет bs58check
+    // Используем обратный подход: для каждого токена берём последние chars адреса
+    // base58 адрес декодируется в те же байты что hex — последние 38 hex chars совпадают
+    const tokenByHexTail = new Map();
+    for (const t of (state.orc20Tokens ?? [])) {
+      // Храним первые 8 chars base58 как "fingerprint" для быстрого поиска
+      tokenByHexTail.set(t.contract, t);
+      // Если есть contractHex — добавляем и его
+      if (t.contractHex) tokenByHexTail.set(t.contractHex.toLowerCase(), t);
+    }
+
     state.txHistory = txs.map(tx => {
       const contract = tx.raw_data?.contract?.[0];
       const type = contract?.type ?? 'Unknown';
@@ -3274,7 +3333,7 @@ async function loadTxHistory() {
 
       // Контрагент — сокращённый hex адрес
       const counterHex = isSend ? toHex : ownerHex;
-      const addrShort  = counterHex.length > 8
+      let addrShort  = counterHex.length > 8
         ? counterHex.slice(0, 6) + '...' + counterHex.slice(-4)
         : '—';
 
@@ -3299,9 +3358,45 @@ async function loadTxHistory() {
         label     = 'Токен ' + (isSend ? 'отправлен' : 'получен');
         amountStr = (isSend ? '−' : '+') + amt;
       } else if (type === 'TriggerSmartContract') {
-        txType    = 'contract';
-        label     = 'Смарт-контракт';
-        amountStr = 'oRC-20';
+        txType = 'contract';
+        try {
+        // Декодируем transfer(address,uint256) из данных транзакции
+        const contractAddr = value.contract_address ?? '';
+        const data         = value.data ?? '';
+        // contractAddr из TX = hex (73b79042...), token.contract = base58 (oZbxhvhX...)
+        // Ищем по сохранённому hex или по base58
+        let savedToken = tokenByHexTail.get(contractAddr) ??
+                         tokenByHexTail.get(contractAddr.toLowerCase());
+        if (!savedToken) {
+          // Fallback: проверяем contractHex сохранённый в токене
+          savedToken = state.orc20Tokens?.find(t =>
+            t.contractHex?.toLowerCase() === contractAddr.toLowerCase()
+          );
+        }
+
+        if (data.startsWith('a9059cbb') && data.length >= 136) {
+          // transfer(address,uint256):
+          // [0..8]   = selector a9059cbb
+          // [8..72]  = to address (64 hex, последние 40 = адрес)
+          // [72..136]= amount (64 hex)
+          const amountHex  = data.slice(72, 136);
+          const rawAmount  = BigInt('0x' + amountHex);
+          const decimals   = savedToken?.decimals ?? 6;
+          const symbol     = savedToken?.symbol   ?? 'oRC-20';
+          const tokenName  = savedToken?.name     ?? contractAddr.slice(0,8)+'...';
+          const tokenAmt   = Number(rawAmount) / Math.pow(10, decimals);
+          const isSendDir  = ownerHex === myHex || ownerHex === myHex.replace(/^73/, '');
+          txType    = isSendDir ? 'out' : 'in';
+          label     = isSendDir ? 'Отправлено' : 'Получено';
+          amountStr = (isSendDir ? '−' : '+') + tokenAmt.toFixed(2) + ' ' + symbol;
+          // Показываем имя токена вместо адреса контракта
+          addrShort = symbol + ' · ' + tokenName;
+        } else {
+          label     = savedToken ? savedToken.symbol + ' контракт' : 'Смарт-контракт';
+          amountStr = savedToken ? savedToken.symbol : 'oRC-20';
+          addrShort = savedToken ? savedToken.name : (contractAddr.slice(0,8)+'...');
+        }
+        } catch(parseErr) { console.warn('[TX parse]', parseErr.message); }
       } else {
         txType    = 'contract';
         label     = type.replace('Contract', '');
@@ -3368,8 +3463,9 @@ async function sendTransaction() {
     document.getElementById('send-to').value = '';
     document.getElementById('send-amount').value = '';
 
-    setTimeout(() => {
+    setTimeout(async () => {
       showScreen('screen-wallet');
+      await loadSavedTokens();
       showWalletTab('assets');
       loadBalance();
       setTimeout(loadTxHistory, 3000); // история обновится через 3с после broadcast
@@ -3754,6 +3850,234 @@ async function claimVotingRewards() {
     toast(e.message || 'Ошибка вывода наград', 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Получить'; }
+  }
+}
+
+
+// ═══════════════════════════════════════════════════
+//  oRC-20 ТОКЕНЫ
+// ═══════════════════════════════════════════════════
+
+// Загружаем сохранённые токены из chrome.storage
+async function loadSavedTokens() {
+  try {
+    const data = await chrome.storage.local.get('orgonlink_tokens');
+    state.orc20Tokens = data.orgonlink_tokens ?? [];
+  } catch {
+    state.orc20Tokens = [];
+  }
+}
+
+async function saveTokens() {
+  try {
+    await chrome.storage.local.set({ orgonlink_tokens: state.orc20Tokens });
+  } catch {}
+}
+
+// Загрузка и обновление балансов токенов
+async function loadTokenBalances() {
+  if (!state.address || state.orc20Tokens.length === 0) return;
+
+  // Сначала пробуем получить все токены через gate API
+  try {
+    const tokens = await sendToSW('orc20.getTokens', { address: state.address.base58 });
+    console.log('[Tokens] from gate:', JSON.stringify(tokens).slice(0, 200));
+
+    if (Array.isArray(tokens) && tokens.length > 0) {
+      // gate вернул токены — обновляем балансы
+      for (const t of tokens) {
+        const contractAddr = t.tokenId ?? Object.keys(t)[0];
+        const rawBalance   = t.balance ?? Object.values(t)[0] ?? '0';
+        const saved = state.orc20Tokens.find(x => x.contract === contractAddr);
+        if (saved) {
+          saved.rawBalance   = rawBalance;
+          saved.balanceFloat = Number(rawBalance) / Math.pow(10, saved.decimals ?? 6);
+        } else if (contractAddr) {
+          // Новый токен найден через gate — добавляем
+          state.orc20Tokens.push({
+            contract:     contractAddr,
+            name:         t.tokenInfo?.name    ?? 'Unknown',
+            symbol:       t.tokenInfo?.symbol  ?? '???',
+            decimals:     t.tokenInfo?.decimals ?? 6,
+            rawBalance,
+            balanceFloat: Number(rawBalance) / Math.pow(10, t.tokenInfo?.decimals ?? 6),
+          });
+        }
+      }
+      await saveTokens();
+    }
+  } catch (e) {
+    console.warn('[Tokens] gate load failed:', e.message);
+  }
+
+  // Обновляем балансы сохранённых токенов через balanceOf
+  let updated = false;
+  for (const token of state.orc20Tokens) {
+    try {
+      const balance = await sendToSW('trx.getORC20Balance', {
+        contractAddress: token.contract,
+        address: state.address.base58,
+      });
+      const rawNum = Number(balance ?? '0');
+      const newFloat = rawNum / Math.pow(10, token.decimals ?? 6);
+      console.log('[Token balance]', token.symbol, rawNum, '→', newFloat);
+      if (token.balanceFloat !== newFloat) {
+        token.rawBalance   = String(rawNum);
+        token.balanceFloat = newFloat;
+        updated = true;
+      }
+    } catch (e) {
+      console.warn('[Token balance error]', token.symbol, e.message);
+    }
+  }
+
+  // Сохраняем обновлённые балансы
+  if (updated) {
+    await saveTokens();
+    // Перерисовываем вкладку активов
+    if (state.walletTab === 'assets') showWalletTab('assets');
+  }
+}
+
+// Получить инфо о токене при добавлении
+async function fetchTokenInfo() {
+  const contract = document.getElementById('add-token-contract')?.value?.trim();
+  if (!contract) { toast('Введите адрес контракта', 'error'); return; }
+
+  const btn = document.getElementById('btn-fetch-token-info');
+  if (btn) { btn.disabled = true; btn.textContent = 'Загрузка...'; }
+
+  try {
+    // Получаем метаданные контракта
+    const info = await sendToSW('orc20.getInfo', { contractAddress: contract });
+    console.log('[AddToken] info:', info);
+
+    // Получаем баланс
+    let balanceFloat = 0;
+    try {
+      const rawBal = await sendToSW('trx.getORC20Balance', {
+        contractAddress: contract,
+        address: state.address?.base58,
+      });
+      console.log('[Token] rawBal:', rawBal, typeof rawBal);
+      // rawBal приходит как строка (BigInt сконвертирован в SW)
+      const rawNum = Number(rawBal ?? '0');
+      balanceFloat = rawNum / Math.pow(10, info.decimals ?? 6);
+      console.log('[Token] balanceFloat:', balanceFloat);
+    } catch (e) {
+      console.warn('[Token] balance error:', e.message);
+    }
+
+    document.getElementById('preview-token-name').textContent    = info.name;
+    document.getElementById('preview-token-symbol').textContent  = info.symbol;
+    document.getElementById('preview-token-decimals').textContent = info.decimals;
+    document.getElementById('preview-token-balance').textContent =
+      balanceFloat.toFixed(6) + ' ' + info.symbol;
+
+    document.getElementById('token-info-preview').style.display  = 'block';
+    document.getElementById('btn-confirm-add-token').style.display = 'block';
+
+    // Сохраняем для confirmAddToken
+    state._pendingToken = { contract, ...info, balanceFloat,
+      contractHex: info.contractHex ?? null,
+      rawBalance: String(Math.round(balanceFloat * Math.pow(10, info.decimals))) };
+
+  } catch (e) {
+    toast('Ошибка: ' + e.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> Получить информацию';
+    }
+  }
+}
+
+async function confirmAddToken() {
+  console.log('[AddToken] _pendingToken:', state._pendingToken);
+  if (!state._pendingToken) {
+    toast('Сначала получите информацию о токене', 'error');
+    return;
+  }
+  const token = state._pendingToken;
+
+  // Проверяем дубликат
+  if (state.orc20Tokens.find(t => t.contract === token.contract)) {
+    toast('Токен уже добавлен', 'error');
+    return;
+  }
+
+  state.orc20Tokens.push(token);
+  await saveTokens();
+  toast(`✓ Токен ${token.symbol} добавлен!`, 'success');
+  state._pendingToken = null;
+  showScreen('screen-wallet');
+  showWalletTab('assets');
+}
+
+// Открыть экран отправки токена
+function openSendToken(token) {
+  state.currentToken = token;
+
+  document.getElementById('send-token-title').textContent  = 'Отправить ' + token.symbol;
+  document.getElementById('send-token-name').textContent   = token.name;
+  document.getElementById('send-token-icon').textContent   = token.symbol.slice(0, 2).toUpperCase();
+  document.getElementById('send-token-contract-addr').textContent =
+    token.contract.slice(0, 8) + '...' + token.contract.slice(-4);
+  document.getElementById('send-token-balance-display').textContent =
+    (token.balanceFloat ?? 0).toFixed(6) + ' ' + token.symbol;
+  document.getElementById('send-token-suffix').textContent = token.symbol;
+  document.getElementById('send-token-to').value     = '';
+  document.getElementById('send-token-amount').value = '';
+
+  showScreen('screen-send-token');
+}
+
+async function sendToken() {
+  const token  = state.currentToken;
+  if (!token) return;
+
+  const to     = document.getElementById('send-token-to')?.value?.trim();
+  const amount = parseFloat(document.getElementById('send-token-amount')?.value);
+
+  if (!to)            { toast('Введите адрес получателя', 'error'); return; }
+  if (!to.startsWith('o')) { toast('Неверный адрес Orgon', 'error'); return; }
+  if (isNaN(amount) || amount <= 0) { toast('Введите сумму', 'error'); return; }
+  if (amount > (token.balanceFloat ?? 0)) { toast('Недостаточно токенов', 'error'); return; }
+
+  const rawAmount = BigInt(Math.round(amount * Math.pow(10, token.decimals ?? 6))).toString();
+
+  const btn = document.getElementById('btn-send-token-submit');
+  if (btn) { btn.disabled = true; btn.textContent = 'Отправка...'; }
+
+  try {
+    const result = await sendToSW('orc20.transfer', {
+      contractAddress: token.contract,
+      to,
+      amount: rawAmount,
+    });
+    toast('✓ Отправлено ' + amount + ' ' + token.symbol, 'success');
+
+    // Обновляем баланс
+    token.balanceFloat = (token.balanceFloat ?? 0) - amount;
+    document.getElementById('send-token-balance-display').textContent =
+      token.balanceFloat.toFixed(6) + ' ' + token.symbol;
+    document.getElementById('send-token-to').value     = '';
+    document.getElementById('send-token-amount').value = '';
+
+    setTimeout(async () => {
+      showScreen('screen-wallet');
+      await loadSavedTokens();
+      showWalletTab('assets');
+      loadBalance();
+    }, 1500);
+
+  } catch (e) {
+    toast(e.message || 'Ошибка отправки', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg> Отправить';
+    }
   }
 }
 

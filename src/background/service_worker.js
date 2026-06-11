@@ -6,7 +6,7 @@
 
 'use strict';
 
-import { KeyringController, hexToBase58 } from './keyring.js';
+import { KeyringController, hexToBase58, base58ToCleanHex } from './keyring.js';
 import { OrgonRPC } from './rpc.js';
 import { PermissionController } from './permissions.js';
 import { TxQueue } from './tx_queue.js';
@@ -124,6 +124,17 @@ const handlers = {
     return rpc.getBalance(address);
   },
 
+  async ['trx.getAccountFull']({ address }) {
+    const addr = address ?? state.selectedAddress?.base58;
+    const data = await rpc.getAccount(addr);
+    // Логируем для диагностики oRC-20
+    console.log('[AccountFull] keys:', Object.keys(data ?? {}).join(', '));
+    console.log('[AccountFull] trc20:', JSON.stringify(data?.trc20 ?? []));
+    console.log('[AccountFull] assetV2:', JSON.stringify(data?.assetV2 ?? []));
+    console.log('[AccountFull] balance:', data?.balance);
+    return data;
+  },
+
   async ['trx.getTransactions']({ address, limit = 20 }) {
     // gate.orgon.space принимает base58 адрес (начинается с 'o')
     const base58Addr = state.selectedAddress?.base58 ?? address;
@@ -209,13 +220,86 @@ const handlers = {
     return rpc.broadcastTransaction(signed);
   },
 
+  // ─── oRC-20 токены ──────────────────────────────────────────────────────
+
+  async ['trx.getORC20Balance']({ contractAddress, address }) {
+    const addr    = address ?? state.selectedAddress?.base58;
+    // Передаём hex адрес без префикса — state хранит полный hex (73xxx)
+    const hexFull = state.selectedAddress?.hex ?? '';
+    // Убираем префикс 73 → 20 bytes = 40 hex chars
+    const ownerHex = hexFull.replace(/^(73|41)/, '');
+    console.log('[SW] getORC20Balance addr:', addr?.slice(0,12), 'hex:', ownerHex.slice(0,12)+'...');
+    const result = await rpc.getORC20Balance(contractAddress, addr, ownerHex);
+    // BigInt не сериализуется в JSON — конвертируем в строку
+    const resultStr = result?.toString() ?? '0';
+    console.log('[SW] getORC20Balance result:', resultStr);
+    return resultStr;
+  },
+
+  async ['orc20.getTokens']({ address }) {
+    const addr = address ?? state.selectedAddress?.base58;
+    return rpc.getORC20Tokens(addr);
+  },
+
+  async ['orc20.getInfo']({ contractAddress }) {
+    const info = await rpc.getORC20Info(contractAddress);
+    // Добавляем hex адрес контракта для сопоставления с историей TX
+    const contractHex = base58ToCleanHex(contractAddress);
+    return { ...info, contractHex: contractHex ? '73' + contractHex : null };
+  },
+
+  async ['orc20.transfer']({ contractAddress, to, amount }) {
+    if (!state.isUnlocked) throw providerError(4100, 'Wallet locked');
+    const ownerAddr = state.selectedAddress?.base58;
+    const ownerHex  = state.selectedAddress?.hex;
+
+    // Конвертируем to адрес base58 → clean hex (20 bytes, без префикса)
+    const toCleanHex = base58ToCleanHex(to);
+    console.log('[ORC20 transfer] to:', to.slice(0,12), '→ hex:', toCleanHex?.slice(0,12)+'...');
+
+    if (!toCleanHex || toCleanHex.length < 30) {
+      throw new Error('Неверный адрес получателя');
+    }
+
+    console.log('[ORC20 transfer] contract:', contractAddress.slice(0,12),
+      'owner:', ownerAddr.slice(0,12), 'amount:', amount);
+
+    const result = await rpc.transferORC20(contractAddress, ownerAddr, toCleanHex, amount);
+    console.log('[ORC20 transfer] result:', JSON.stringify(result).slice(0, 150));
+
+    if (!result?.transaction?.txID && !result?.txID) {
+      throw new Error(result?.result?.message ?? result?.Error ?? JSON.stringify(result).slice(0,100));
+    }
+    const tx = result.transaction ?? result;
+    const signed = await keyring.signTransaction(ownerHex, tx);
+    return rpc.broadcastTransaction(signed);
+  },
+
   async ['wallet.getCanWithdrawUnfreeze']() {
     const addr = state.selectedAddress?.base58;
     return rpc.getCanWithdrawUnfreezeAmount(addr);
   },
 
   async ['trx.getAccount']({ address }) {
-    return rpc.getAccount(address);
+    const data = await rpc.getAccount(address);
+    console.log('[Account] keys:', Object.keys(data ?? {}));
+    console.log('[Account] trc20:', JSON.stringify(data?.trc20));
+    console.log('[Account] assetV2:', JSON.stringify(data?.assetV2));
+    console.log('[Account] balance:', data?.balance);
+    return data;
+  },
+
+  async ['trx.getORC20Tokens']({ address }) {
+    // Получаем полный аккаунт и извлекаем trc20 токены
+    const addr = address ?? state.selectedAddress?.base58;
+    const data = await rpc.getAccount(addr);
+    console.log('[ORC20] raw trc20:', JSON.stringify(data?.trc20));
+    console.log('[ORC20] all keys:', Object.keys(data ?? {}));
+    return {
+      trc20:   data?.trc20   ?? [],
+      assetV2: data?.assetV2 ?? [],
+      allKeys: Object.keys(data ?? {}),
+    };
   },
 
   async ['trx.getTransaction']({ txid }) {

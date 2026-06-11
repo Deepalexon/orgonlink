@@ -187,21 +187,47 @@ export class OrgonRPC {
   /**
    * oRC20 баланс (вызов balanceOf через triggerconstantcontract).
    */
-  async getORC20Balance(contractAddress, ownerAddress) {
-    const param = ownerAddress.replace(/^(41|0x)/, '').padStart(64, '0');
-    const result = await this.triggerConstantContract(
-      ownerAddress,
-      contractAddress,
-      'balanceOf(address)',
-      param
-    );
-    const hex = result?.constant_result?.[0] ?? '0';
-    return BigInt('0x' + (hex || '0'));
+  async getORC20Balance(contractAddress, ownerAddress, ownerHex) {
+    // ownerHex — 40-символьный hex без префикса 73 (передаётся из SW)
+    let cleanHex = ownerHex ?? null;
+
+    if (!cleanHex || cleanHex.length < 30) {
+      // Fallback: пробуем из getAccount
+      try {
+        const acc = await this.getAccount(ownerAddress);
+        cleanHex = (acc?.address ?? '').replace(/^(73|41)/, '');
+      } catch {}
+    }
+
+    if (!cleanHex || cleanHex.length < 30) {
+      console.warn('[ORC20Bal] no hex addr, skip. ownerHex was:', ownerHex);
+      return BigInt(0);
+    }
+
+    // ABI encode: берём последние 40 chars (20 bytes) и padStart до 64
+    const param = cleanHex.slice(-40).padStart(64, '0');
+    console.log('[ORC20Bal] contract:', contractAddress.slice(0,12),
+      'hex:', cleanHex.slice(0,12)+'...', 'param:', param.slice(24));
+
+    try {
+      const result = await this.call('wallet/triggerconstantcontract', {
+        owner_address:     ownerAddress,
+        contract_address:  contractAddress,
+        function_selector: 'balanceOf(address)',
+        parameter:         param,
+        visible:           true,
+      });
+      const hex = result?.constant_result?.[0] ?? '';
+      console.log('[ORC20Bal] constant_result:', hex.slice(0,20), 'energy_used:', result?.energy_used);
+      if (!hex || !hex.replace(/0+/g, '')) return BigInt(0);
+      return BigInt('0x' + hex);
+    } catch (e) {
+      console.warn('[ORC20Bal] error:', e.message);
+      return BigInt(0);
+    }
   }
 
-  /**
-   * История транзакций аккаунта (через /v1/ API, аналог TronGrid).
-   */
+
   async getTransactions(base58Address, hexAddress, limit = 20) {
     // gate.orgon.space принимает ТОЛЬКО base58 адрес (начинается с 'o')
     // hex адрес возвращает data:null (транзакции не найдены)
@@ -425,6 +451,144 @@ export class OrgonRPC {
       owner_address: ownerAddress,
       visible: true,
     });
+  }
+
+
+  // ═══════════════════════════════════════════════════
+  //  oRC-20 ТОКЕНЫ
+  // ═══════════════════════════════════════════════════
+
+  /**
+   * Получить список oRC-20 токенов аккаунта через gate REST API
+   * Возвращает: [{ tokenId, balance, tokenInfo: { name, symbol, decimals } }]
+   */
+  async getORC20Tokens(address) {
+    // gate.orgon.space /v1/accounts/{addr}/tokens — TRC-20 токены
+    const url = `${this.apiGateUrl}/v1/accounts/${address}/tokens?limit=50&token_id=orc20`;
+    const headers = { 'Accept': 'application/json' };
+    if (this.apiKey) headers[API_KEY_HEADER] = this.apiKey;
+
+    try {
+      const res = await fetch(url, { headers });
+      const text = await res.text();
+      console.log('[ORC20] tokens status:', res.status, 'preview:', text.slice(0, 150));
+      if (res.ok) {
+        const data = JSON.parse(text);
+        const tokens = data.data ?? [];
+        console.log('[ORC20] tokens count:', tokens.length);
+        return tokens;
+      }
+    } catch (e) {
+      console.warn('[ORC20] tokens via gate failed:', e.message);
+    }
+
+    // Фолбэк: через triggerConstantContract balanceOf для известных контрактов
+    // getAccount иногда не возвращает trc20 для новых токенов
+    // Пробуем получить через getAccountByIdOrAddress
+    try {
+      const url2 = `${this.apiGateUrl}/v1/accounts/${address}`;
+      const res2 = await fetch(url2, { headers });
+      if (res2.ok) {
+        const data2 = await res2.json();
+        console.log('[ORC20] account via gate keys:', Object.keys(data2 ?? {}).join(', '));
+        console.log('[ORC20] trc20 from gate:', JSON.stringify(data2?.trc20 ?? []));
+        // gate возвращает trc20 как массив {key: contractAddr, value: amount}
+        const trc20 = data2?.trc20 ?? [];
+        return trc20.map(item => {
+          const contractAddr = Object.keys(item)[0];
+          const balance = Object.values(item)[0];
+          return { tokenId: contractAddr, balance, tokenType: 'trc20' };
+        });
+      }
+    } catch (e) {
+      console.warn('[ORC20] account via gate failed:', e.message);
+    }
+
+    return [];
+  }
+
+  /**
+   * Получить метаданные oRC-20 контракта (name, symbol, decimals)
+   */
+  async getORC20Info(contractAddress) {
+    const call = async (fn) => {
+      try {
+        const res = await this.call('wallet/triggerconstantcontract', {
+          owner_address: contractAddress,
+          contract_address: contractAddress,
+          function_selector: fn,
+          parameter: '',
+          visible: true,
+        });
+        const hex = res?.constant_result?.[0] ?? '';
+        console.log('[ORC20Info]', fn, '->', hex.slice(0, 60));
+        return hex;
+      } catch (e) {
+        console.warn('[ORC20Info]', fn, 'error:', e.message);
+        return '';
+      }
+    };
+
+    const decodeABIString = (hex) => {
+      try {
+        if (!hex || hex.length < 128) return null;
+        // ABI string: [offset 32b][length 32b][data...]
+        const offset = parseInt(hex.slice(0, 64), 16) * 2;
+        const len = parseInt(hex.slice(offset, offset + 64), 16);
+        if (!len || len > 512) return null;
+        const strHex = hex.slice(offset + 64, offset + 64 + len * 2);
+        const bytes = new Uint8Array(strHex.match(/.{2}/g).map(b => parseInt(b, 16)));
+        return new TextDecoder('utf-8').decode(bytes).trim();
+      } catch { return null; }
+    };
+
+    const decodeUint = (hex) => {
+      if (!hex) return 6;
+      return parseInt(hex.slice(-64), 16) || 6;
+    };
+
+    const [nameHex, symbolHex, decimalsHex] = await Promise.all([
+      call('name()'), call('symbol()'), call('decimals()'),
+    ]);
+
+    return {
+      name:     decodeABIString(nameHex)   ?? 'Unknown',
+      symbol:   decodeABIString(symbolHex) ?? '???',
+      decimals: decodeUint(decimalsHex),
+    };
+  }
+
+  /**
+   * Перевод oRC-20 токена
+   * transfer(address _to, uint256 _value)
+   */
+  async transferORC20(contractAddress, ownerAddress, toCleanHex, amount) {
+    // toCleanHex — hex адрес получателя БЕЗ префикса (40 chars, 20 bytes)
+    // Передаётся уже очищенным из SW
+    const addrParam   = toCleanHex.slice(-40).padStart(64, '0');
+    const amountHex   = BigInt(amount).toString(16).padStart(64, '0');
+    const parameter   = addrParam + amountHex;
+
+    console.log('[transferORC20] to param:', addrParam.slice(24), 'amount param:', amountHex.slice(-8));
+
+    // fee_limit = 150 ORGON — максимум который можно потратить на Energy
+    // Если Energy недостаточно — нода сожжёт ORGON из баланса
+    return this.call('wallet/triggersmartcontract', {
+      owner_address:     ownerAddress,
+      contract_address:  contractAddress,
+      function_selector: 'transfer(address,uint256)',
+      parameter,
+      fee_limit:         150_000_000,  // 150 ORGON максимум
+      call_value:        0,
+      visible:           true,
+    });
+  }
+
+  _base58ToHex(base58addr) {
+    // Используем встроенный bs58check через getAccount round-trip
+    // Просто убираем первый байт (0x73) и берём остаток
+    // Более корректно — через toHex API ноды
+    return base58addr; // заглушка — используется toHex через node
   }
 
 

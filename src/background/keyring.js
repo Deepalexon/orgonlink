@@ -275,6 +275,26 @@ function bytesToHex(bytes) {
  * Конвертировать hex адрес (73xxxx...) в base58 (oXxx...)
  * Использует тот же bs58check что и _addressFromPrivKey
  */
+/**
+ * Конвертировать base58 адрес (oXxx...) в hex без префикса (40 chars)
+ */
+export function base58ToCleanHex(b58addr) {
+  if (!b58addr) return null;
+  // Если уже hex — убираем префикс и возвращаем
+  if (/^[0-9a-fA-F]{42}$/.test(b58addr)) return b58addr.slice(2); // 73xxxx → xxxx
+  if (/^[0-9a-fA-F]{40}$/.test(b58addr)) return b58addr;
+  try {
+    // bs58check.decode возвращает Uint8Array: [prefix_byte, ...20_bytes]
+    const decoded = bs58check.decode(b58addr);
+    // decoded[0] = 0x73 (Orgon prefix), decoded[1..20] = address bytes
+    const addrBytes = decoded.slice(1); // убираем префикс
+    return Array.from(addrBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch (e) {
+    console.warn('[base58ToCleanHex] failed:', e.message);
+    return null;
+  }
+}
+
 export function hexToBase58(hexAddr) {
   if (!hexAddr) return hexAddr;
   // Уже base58 если начинается с 'o' (Orgon) или не является hex строкой
