@@ -724,6 +724,22 @@
   </div>
   <div class="scroll-area p16">
 
+    <!-- Выбор актива -->
+    <div class="input-group mb14">
+      <label class="input-label">Актив</label>
+      <div class="asset-picker" id="send-asset-picker" style="position:relative;">
+        <div class="ap-current" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;cursor:pointer;">
+          <span class="ap-icon"></span>
+          <div style="flex:1;min-width:0;">
+            <div class="fw600 fs13 ap-symbol">ORGON</div>
+            <div class="fs11 muted ap-balance">—</div>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="ap-list" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--bg);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:50;max-height:240px;overflow:auto;"></div>
+      </div>
+    </div>
+
     <div class="card mb16">
       <div class="label mb8">Отправитель</div>
       <div class="flex flex-center gap8">
@@ -739,6 +755,7 @@
     <div class="input-group mb14">
       <div class="flex justify-between flex-center">
         <label class="input-label">Получатель</label>
+        <span class="send-max fs11" id="send-pick-contact">📓 Контакты</span>
       </div>
       <input type="text" id="send-to" placeholder="Адрес получателя...">
     </div>
@@ -1115,13 +1132,16 @@
       </div>
     </div>
 
-    <!-- Таб: Заморозить / Разморозить -->
+    <!-- Таб: Заморозить / Разморозить / Делегировать -->
     <div class="flex gap8 mb14">
-      <button class="btn btn-primary" id="stk-tab-freeze" style="flex:1;height:36px;font-size:12px;">
+      <button class="btn btn-primary" id="stk-tab-freeze" style="flex:1;height:36px;font-size:11px;">
         ❄️ Заморозить
       </button>
-      <button class="btn btn-secondary" id="stk-tab-unfreeze" style="flex:1;height:36px;font-size:12px;">
+      <button class="btn btn-secondary" id="stk-tab-unfreeze" style="flex:1;height:36px;font-size:11px;">
         🔥 Разморозить
+      </button>
+      <button class="btn btn-secondary" id="stk-tab-delegate" style="flex:1;height:36px;font-size:11px;">
+        🤝 Делегат
       </button>
     </div>
 
@@ -1204,6 +1224,128 @@
       </div>
     </div>
 
+    <!-- Панель: Делегировать -->
+    <div id="stk-panel-delegate" style="display:none;">
+      <!-- Режим: делегировать / отозвать -->
+      <div class="flex gap8 mb12">
+        <button class="btn btn-primary" id="dlg-mode-give" style="flex:1;height:34px;font-size:11px;">
+          Делегировать
+        </button>
+        <button class="btn btn-secondary" id="dlg-mode-take" style="flex:1;height:34px;font-size:11px;">
+          Отозвать
+        </button>
+      </div>
+
+      <div class="input-group mb12">
+        <label class="input-label">Ресурс</label>
+        <div class="flex gap8">
+          <button class="btn btn-primary" id="dlg-res-bandwidth" style="flex:1;height:36px;font-size:12px;">
+            Bandwidth
+          </button>
+          <button class="btn btn-secondary" id="dlg-res-energy" style="flex:1;height:36px;font-size:12px;">
+            Energy
+          </button>
+        </div>
+      </div>
+
+      <div class="input-group mb12">
+        <label class="input-label">Адрес получателя</label>
+        <input type="text" id="dlg-receiver" placeholder="o..." autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="input-group mb12">
+        <div class="flex justify-between flex-center">
+          <label class="input-label">Сумма ORGON</label>
+          <span class="send-max fs11" id="dlg-max-btn">Максимум</span>
+        </div>
+        <div class="amount-input-wrap">
+          <input type="number" id="dlg-amount" placeholder="0.000000" style="padding-right:70px;" min="1" step="1">
+          <span class="amount-suffix">ORGON</span>
+        </div>
+      </div>
+
+      <!-- Фиксация (только при делегировании) -->
+      <div class="input-group mb12" id="dlg-lock-row">
+        <label class="input-label">Фиксация</label>
+        <div class="flex gap8">
+          <button class="btn btn-primary" id="dlg-lock-off" style="flex:1;height:34px;font-size:11px;">
+            Без фиксации
+          </button>
+          <button class="btn btn-secondary" id="dlg-lock-on" style="flex:1;height:34px;font-size:11px;">
+            Lock 3 дня
+          </button>
+        </div>
+      </div>
+
+      <div class="card-sm mb14" style="font-size:12px;">
+        <div class="fee-row"><span class="muted">Доступно к делегированию</span><span class="mono accent" id="dlg-avail">—</span></div>
+        <div class="fee-row" style="border:none;"><span class="muted">Получатель сможет тратить ресурс сразу</span></div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-do-delegate">
+        🤝 Делегировать
+      </button>
+
+      <!-- Активные делегирования -->
+      <div id="dlg-list-section" style="margin-top:16px;">
+        <div class="divider"></div>
+        <div class="flex justify-between flex-center mt12 mb8">
+          <div class="fs12 fw600">Мои делегирования</div>
+          <span class="send-max fs11" id="dlg-refresh">Обновить</span>
+        </div>
+        <div id="dlg-list"><div class="fs11 muted">—</div></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SCREEN: ACCOUNTS (мультиаккаунт)
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-accounts">
+  <div class="top-bar">
+    <button class="back-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Аккаунты</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area p16">
+    <div id="accounts-list"><div class="fs12 muted">Загрузка…</div></div>
+
+    <div class="divider" style="margin:16px 0;"></div>
+
+    <button class="btn btn-primary mb8" id="btn-add-hd" style="width:100%;">＋ Создать HD-аккаунт</button>
+    <button class="btn btn-secondary mb8" id="btn-toggle-import-key" style="width:100%;">Импорт по приватному ключу</button>
+    <button class="btn btn-secondary" id="btn-toggle-import-seed" style="width:100%;">Импорт seed-фразы (отдельный кошелёк)</button>
+
+    <!-- Импорт по ключу -->
+    <div id="import-key-form" class="card mt12" style="display:none;">
+      <div class="input-group mb8">
+        <label class="input-label">Имя (опционально)</label>
+        <input type="text" id="imp-key-name" placeholder="Импорт 1" autocomplete="off">
+      </div>
+      <div class="input-group mb12">
+        <label class="input-label">Приватный ключ (64 hex)</label>
+        <input type="text" id="imp-key-value" placeholder="0x..." autocomplete="off" spellcheck="false">
+      </div>
+      <button class="btn btn-primary" id="btn-do-import-key" style="width:100%;">Импортировать</button>
+    </div>
+
+    <!-- Импорт seed -->
+    <div id="import-seed-form" class="card mt12" style="display:none;">
+      <div class="input-group mb8">
+        <label class="input-label">Имя кошелька (опционально)</label>
+        <input type="text" id="imp-seed-name" placeholder="Кошелёк 2" autocomplete="off">
+      </div>
+      <div class="input-group mb12">
+        <label class="input-label">Seed-фраза (12 или 24 слова)</label>
+        <textarea id="imp-seed-value" placeholder="слово1 слово2 ..." rows="3" autocomplete="off" spellcheck="false" style="resize:vertical;width:100%;"></textarea>
+      </div>
+      <button class="btn btn-primary" id="btn-do-import-seed" style="width:100%;">Импортировать кошелёк</button>
+    </div>
   </div>
 </div>
 
@@ -1355,6 +1497,46 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════
+     SCREEN: CONTACTS (адресная книга)
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-contacts">
+  <div class="top-bar">
+    <button class="back-btn" id="btn-back-from-contacts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Адресная книга</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area p16">
+    <div id="contacts-hint" class="fs12 accent mb12" style="display:none;">Выберите контакт для получателя</div>
+    <div id="contacts-list"><div class="fs12 muted">Загрузка…</div></div>
+
+    <button class="btn btn-primary mt12" id="btn-add-contact" style="width:100%;">＋ Добавить контакт</button>
+
+    <!-- Форма добавления / редактирования -->
+    <div id="contact-form" class="card mt12" style="display:none;">
+      <div class="input-group mb8">
+        <label class="input-label">Имя</label>
+        <input type="text" id="contact-name" placeholder="Напр. Биржа / Алекс" autocomplete="off">
+      </div>
+      <div class="input-group mb8">
+        <label class="input-label">Адрес Orgon</label>
+        <input type="text" id="contact-address" placeholder="o..." autocomplete="off" spellcheck="false">
+      </div>
+      <div class="input-group mb12">
+        <label class="input-label">Заметка (опционально)</label>
+        <input type="text" id="contact-note" placeholder="..." autocomplete="off">
+      </div>
+      <div class="flex gap8">
+        <button class="btn btn-secondary" id="btn-contact-cancel" style="flex:1;">Отмена</button>
+        <button class="btn btn-primary" id="btn-contact-save" style="flex:1;">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
      SCREEN: SEND oRC-20 TOKEN
 ═══════════════════════════════════════════════════ -->
 <div class="screen" id="screen-send-token">
@@ -1367,6 +1549,22 @@
     <div style="width:50px"></div>
   </div>
   <div class="scroll-area p16">
+    <!-- Выбор актива -->
+    <div class="input-group mb14">
+      <label class="input-label">Актив</label>
+      <div class="asset-picker" id="sendtok-asset-picker" style="position:relative;">
+        <div class="ap-current" style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:10px;cursor:pointer;">
+          <span class="ap-icon"></span>
+          <div style="flex:1;min-width:0;">
+            <div class="fw600 fs13 ap-symbol">—</div>
+            <div class="fs11 muted ap-balance">—</div>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="ap-list" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 4px);background:var(--bg);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:50;max-height:240px;overflow:auto;"></div>
+      </div>
+    </div>
+
     <div class="card mb14">
       <div class="label mb8">Токен</div>
       <div class="flex flex-center gap8">
@@ -1386,7 +1584,10 @@
     </div>
 
     <div class="input-group mb12">
-      <label class="input-label">Получатель</label>
+      <div class="flex justify-between flex-center">
+        <label class="input-label">Получатель</label>
+        <span class="send-max fs11" id="send-token-pick-contact">📓 Контакты</span>
+      </div>
       <input type="text" id="send-token-to" placeholder="oXxx... адрес получателя">
     </div>
     <div class="input-group mb12">

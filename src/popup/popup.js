@@ -2302,6 +2302,13 @@ const state = {
   prevScreen: null,
   walletTab: 'assets',
   address: null,
+  accounts: [],
+  activeAccountId: null,
+  notifyEnabled: true,
+  contacts: [],
+  contactPickTarget: null,
+  contactReturnScreen: null,
+  editingContactId: null,
   balanceSun: 0,
   tokens: [],
   txHistory: [],
@@ -2320,6 +2327,12 @@ const state = {
   resources: null,
   stakingResource: 'BANDWIDTH',
   unStakingResource: 'BANDWIDTH',
+
+  // Делегирование
+  delegateMode: 'give',          // 'give' | 'take'
+  delegateResource: 'BANDWIDTH',
+  delegateLock: false,
+  delegateMaxOrgon: 0,
 
   // Голосование
   witnesses: [],
@@ -2357,17 +2370,20 @@ const NETWORKS = {
 //  SCREEN ROUTING
 // ═══════════════════════════════════════════════════
 function showScreen(id) {
+  const next = document.getElementById(id);
+  if (!next) return;
   const prev = document.querySelector('.screen.active');
+  if (prev === next) {            // уже на этом экране — не трогаем анимацию
+    state.currentScreen = id;
+    return;
+  }
   if (prev) {
     prev.classList.add('slide-out');
     setTimeout(() => prev.classList.remove('active', 'slide-out'), 220);
   }
-  const next = document.getElementById(id);
-  if (next) {
-    state.prevScreen = state.currentScreen;
-    state.currentScreen = id;
-    requestAnimationFrame(() => next.classList.add('active'));
-  }
+  state.prevScreen = state.currentScreen;
+  state.currentScreen = id;
+  requestAnimationFrame(() => next.classList.add('active'));
 }
 
 function goBack() {
@@ -2484,6 +2500,34 @@ function bindEvents() {
     btn.addEventListener('click', () => showScreen('screen-wallet'))
   );
 
+  // ── Accounts (мультиаккаунт) ──
+  document.querySelectorAll('#screen-accounts .back-btn').forEach(btn =>
+    btn.addEventListener('click', () => { showScreen('screen-wallet'); showWalletTab('assets'); })
+  );
+  on('btn-add-hd',            'click', addHdAccount);
+  on('btn-toggle-import-key', 'click', () => toggleImportForm('key'));
+  on('btn-toggle-import-seed','click', () => toggleImportForm('seed'));
+  on('btn-do-import-key',     'click', doImportKey);
+  on('btn-do-import-seed',    'click', doImportSeed);
+
+  // ── Contacts (адресная книга) ──
+  document.querySelectorAll('#screen-contacts .back-btn').forEach(btn =>
+    btn.addEventListener('click', () => {
+      const back = state.contactReturnScreen || 'screen-wallet';
+      state.contactPickTarget = null;
+      state.contactReturnScreen = null;
+      showScreen(back);
+    })
+  );
+  on('btn-add-contact',     'click', () => openContactForm(null));
+  on('btn-contact-save',    'click', saveContact);
+  on('btn-contact-cancel',  'click', () => {
+    document.getElementById('contact-form').style.display = 'none';
+    state.editingContactId = null;
+  });
+  on('send-pick-contact',       'click', () => openContactsScreen('send-to', 'screen-send'));
+  on('send-token-pick-contact', 'click', () => openContactsScreen('send-token-to', 'screen-send-token'));
+
   // ── Approval ──
   on('btn-reject-approval', 'click', rejectApproval);
   on('btn-approve-approval','click', approveApproval);
@@ -2504,19 +2548,19 @@ function bindEvents() {
   // ── Staking ──
   on('btn-back-from-staking', 'click', () => showScreen('screen-wallet'));
 
-  on('stk-tab-freeze', 'click', () => {
-    document.getElementById('stk-panel-freeze').style.display = 'block';
-    document.getElementById('stk-panel-unfreeze').style.display = 'none';
-    document.getElementById('stk-tab-freeze').className = 'btn btn-primary';
-    document.getElementById('stk-tab-unfreeze').className = 'btn btn-secondary';
-  });
-  on('stk-tab-unfreeze', 'click', () => {
-    document.getElementById('stk-panel-freeze').style.display = 'none';
-    document.getElementById('stk-panel-unfreeze').style.display = 'block';
-    document.getElementById('stk-tab-freeze').className = 'btn btn-secondary';
-    document.getElementById('stk-tab-unfreeze').className = 'btn btn-primary';
-    loadWithdrawable();
-  });
+  function stakingTab(which) {
+    const panels = { freeze:'stk-panel-freeze', unfreeze:'stk-panel-unfreeze', delegate:'stk-panel-delegate' };
+    const tabs   = { freeze:'stk-tab-freeze',   unfreeze:'stk-tab-unfreeze',   delegate:'stk-tab-delegate' };
+    for (const k in panels) {
+      const p = document.getElementById(panels[k]); if (p) p.style.display = (k === which) ? 'block' : 'none';
+      const t = document.getElementById(tabs[k]);   if (t) t.className = 'btn ' + ((k === which) ? 'btn-primary' : 'btn-secondary');
+    }
+    if (which === 'unfreeze') loadWithdrawable();
+    if (which === 'delegate') { updateDelegateAvail(); loadDelegations(); }
+  }
+  on('stk-tab-freeze',   'click', () => stakingTab('freeze'));
+  on('stk-tab-unfreeze', 'click', () => stakingTab('unfreeze'));
+  on('stk-tab-delegate', 'click', () => stakingTab('delegate'));
 
   // Выбор ресурса — Freeze
   on('stk-res-bandwidth', 'click', () => {
@@ -2561,6 +2605,39 @@ function bindEvents() {
   on('btn-do-freeze',    'click', doFreeze);
   on('btn-do-unfreeze',  'click', doUnfreeze);
   on('btn-do-withdraw',  'click', doWithdraw);
+
+  // ── Delegate ──
+  on('dlg-mode-give', 'click', () => setDelegateMode('give'));
+  on('dlg-mode-take', 'click', () => setDelegateMode('take'));
+  on('dlg-res-bandwidth', 'click', () => {
+    state.delegateResource = 'BANDWIDTH';
+    document.getElementById('dlg-res-bandwidth').className = 'btn btn-primary';
+    document.getElementById('dlg-res-energy').className = 'btn btn-secondary';
+    updateDelegateAvail();
+  });
+  on('dlg-res-energy', 'click', () => {
+    state.delegateResource = 'ENERGY';
+    document.getElementById('dlg-res-bandwidth').className = 'btn btn-secondary';
+    document.getElementById('dlg-res-energy').className = 'btn btn-primary';
+    updateDelegateAvail();
+  });
+  on('dlg-lock-off', 'click', () => {
+    state.delegateLock = false;
+    document.getElementById('dlg-lock-off').className = 'btn btn-primary';
+    document.getElementById('dlg-lock-on').className = 'btn btn-secondary';
+  });
+  on('dlg-lock-on', 'click', () => {
+    state.delegateLock = true;
+    document.getElementById('dlg-lock-off').className = 'btn btn-secondary';
+    document.getElementById('dlg-lock-on').className = 'btn btn-primary';
+  });
+  on('dlg-max-btn', 'click', () => {
+    if (state.delegateMode === 'take') return;
+    const el = document.getElementById('dlg-amount');
+    if (el && state.delegateMaxOrgon) el.value = Math.floor(state.delegateMaxOrgon);
+  });
+  on('dlg-refresh', 'click', loadDelegations);
+  on('btn-do-delegate', 'click', doDelegate);
 
   // ── Add Token ──
   on('btn-back-from-add-token',  'click', () => showScreen('screen-wallet'));
@@ -2645,6 +2722,8 @@ async function init() {
       showScreen('screen-wallet');
       // Сначала загружаем сохранённые токены из storage
       await loadSavedTokens();
+      await loadAccounts();
+      try { const nf = await chrome.storage.local.get('orgonlink_notify'); state.notifyEnabled = nf.orgonlink_notify !== false; } catch {}
       showWalletTab('assets');
       loadBalance();
       // Обновляем балансы токенов через 1 сек
@@ -2724,6 +2803,7 @@ async function createWallet() {
     showWalletTab('assets');
     loadBalance();
     setTimeout(loadTokenBalances, 1000);
+    await loadAccounts();
     toast('Кошелёк создан!', 'success');
   } catch (e) {
     toast(e.message, 'error');
@@ -2753,6 +2833,7 @@ async function importWallet() {
     await loadSavedTokens();
     showWalletTab('assets');
     loadBalance();
+    await loadAccounts();
     toast('Кошелёк импортирован', 'success');
   } catch (e) {
     toast(e.message, 'error');
@@ -2783,6 +2864,7 @@ async function unlockWallet() {
     await loadSavedTokens();
     showWalletTab('assets');
     loadBalance();
+    await loadAccounts();
   } catch (e) {
     toast('Неверный пароль', 'error');
     document.getElementById('unlock-password').value = '';
@@ -2794,6 +2876,329 @@ async function lockWallet() {
   state.address = null;
   state.balanceSun = 0;
   showScreen('screen-lock');
+}
+
+// ═══════════════════════════════════════════════════
+//  МУЛЬТИАККАУНТ
+// ═══════════════════════════════════════════════════
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+}
+
+async function loadAccounts() {
+  try {
+    const list = await sendToSW('wallet.listAccounts');
+    state.accounts = Array.isArray(list) ? list : [];
+    const active = state.accounts.find(a => a.active);
+    if (active) {
+      state.activeAccountId = active.id;
+      state.address = active.address;
+    }
+  } catch (e) {
+    console.warn('[accounts] load failed', e);
+  }
+}
+
+async function toggleNotifications() {
+  state.notifyEnabled = !state.notifyEnabled;
+  try { await chrome.storage.local.set({ orgonlink_notify: state.notifyEnabled }); } catch {}
+  showWalletTab('settings');
+  toast(state.notifyEnabled ? '🔔 Уведомления включены' : '🔕 Уведомления выключены', 'success');
+}
+
+// ═══════════════════════════════════════════════════
+//  АДРЕСНАЯ КНИГА
+// ═══════════════════════════════════════════════════
+
+async function loadContacts() {
+  try {
+    const d = await chrome.storage.local.get('orgonlink_contacts');
+    state.contacts = Array.isArray(d.orgonlink_contacts) ? d.orgonlink_contacts : [];
+  } catch { state.contacts = []; }
+}
+
+async function saveContacts() {
+  try { await chrome.storage.local.set({ orgonlink_contacts: state.contacts }); } catch {}
+}
+
+async function openContactsScreen(pickTarget, returnScreen) {
+  state.contactPickTarget = pickTarget || null;
+  state.contactReturnScreen = returnScreen || null;
+  state.editingContactId = null;
+  document.getElementById('contact-form').style.display = 'none';
+  showScreen('screen-contacts');
+  await loadContacts();
+  renderContactsList();
+}
+
+function renderContactsList() {
+  const box = document.getElementById('contacts-list');
+  if (!box) return;
+  const pick = !!state.contactPickTarget;
+  const hint = document.getElementById('contacts-hint');
+  if (hint) hint.style.display = pick ? 'block' : 'none';
+
+  if (!state.contacts.length) {
+    box.innerHTML = '<div class="fs12 muted">Контактов пока нет</div>';
+    return;
+  }
+  box.innerHTML = state.contacts.map(c => {
+    const short = c.address.slice(0, 8) + '…' + c.address.slice(-6);
+    const sub = short + (c.note ? ' · ' + escapeHtml(c.note) : '');
+    return `<div class="card mb8 contact-row" data-id="${c.id}" style="cursor:pointer;">
+      <div class="flex flex-center justify-between">
+        <div class="flex flex-center gap8" style="min-width:0;">
+          <div class="address-avatar" style="width:30px;height:30px;border-radius:50%;flex-shrink:0;"></div>
+          <div style="min-width:0;">
+            <div class="fw600 fs13 truncate">${escapeHtml(c.name)}</div>
+            <div class="mono fs11 muted truncate">${sub}</div>
+          </div>
+        </div>
+        <div class="flex gap8" style="flex-shrink:0;">
+          ${pick ? '<span class="accent fs11">Выбрать ›</span>'
+                 : `<button class="btn-icon contact-edit" data-id="${c.id}" title="Изменить">✏️</button>
+                    <button class="btn-icon contact-del" data-id="${c.id}" title="Удалить">🗑️</button>`}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('.contact-row').forEach(row => row.addEventListener('click', e => {
+    if (e.target.closest('.contact-edit') || e.target.closest('.contact-del')) return;
+    const c = state.contacts.find(x => x.id === row.dataset.id);
+    if (!c) return;
+    if (state.contactPickTarget) {
+      const input = document.getElementById(state.contactPickTarget);
+      if (input) input.value = c.address;
+      const back = state.contactReturnScreen || 'screen-send';
+      state.contactPickTarget = null;
+      state.contactReturnScreen = null;
+      showScreen(back);
+      toast(`Получатель: ${c.name}`, 'success');
+    } else {
+      navigator.clipboard?.writeText(c.address).catch(() => {});
+      toast('Адрес скопирован', 'success');
+    }
+  }));
+  box.querySelectorAll('.contact-edit').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); openContactForm(b.dataset.id); }));
+  box.querySelectorAll('.contact-del').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); deleteContact(b.dataset.id); }));
+}
+
+function openContactForm(id) {
+  state.editingContactId = id || null;
+  const c = id ? state.contacts.find(x => x.id === id) : null;
+  document.getElementById('contact-name').value    = c?.name || '';
+  document.getElementById('contact-address').value = c?.address || '';
+  document.getElementById('contact-note').value    = c?.note || '';
+  const form = document.getElementById('contact-form');
+  form.style.display = 'block';
+  form.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function saveContact() {
+  const name    = document.getElementById('contact-name').value.trim();
+  const address = document.getElementById('contact-address').value.trim();
+  const note    = document.getElementById('contact-note').value.trim();
+  if (!name) { toast('Введите имя', 'error'); return; }
+  if (!address.startsWith('o') || address.length < 30) { toast('Неверный адрес Orgon (должен начинаться с «o»)', 'error'); return; }
+  if (state.contacts.some(c => c.address === address && c.id !== state.editingContactId)) {
+    toast('Этот адрес уже в книге', 'error'); return;
+  }
+  if (state.editingContactId) {
+    const c = state.contacts.find(x => x.id === state.editingContactId);
+    if (c) { c.name = name; c.address = address; c.note = note; }
+  } else {
+    state.contacts.push({
+      id: 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name, address, note,
+    });
+  }
+  await saveContacts();
+  document.getElementById('contact-form').style.display = 'none';
+  state.editingContactId = null;
+  renderContactsList();
+  toast('✓ Контакт сохранён', 'success');
+}
+
+async function deleteContact(id) {
+  const c = state.contacts.find(x => x.id === id);
+  if (!window.confirm(`Удалить контакт «${c?.name || ''}»?`)) return;
+  state.contacts = state.contacts.filter(x => x.id !== id);
+  await saveContacts();
+  renderContactsList();
+  toast('Контакт удалён', 'success');
+}
+
+function openAccountsScreen() {
+  showScreen('screen-accounts');
+  const k = document.getElementById('import-key-form');  if (k) k.style.display = 'none';
+  const s = document.getElementById('import-seed-form'); if (s) s.style.display = 'none';
+  loadAccounts().then(renderAccountsScreen);
+}
+
+function acctTypeBadge(a) {
+  const base = 'padding:1px 6px;border-radius:5px;font-size:9px;background:var(--bg2);';
+  if (a.type === 'key')                       return `<span style="${base}color:var(--text2);">КЛЮЧ</span>`;
+  if (a.seedId && a.seedId !== 'primary')     return `<span style="${base}color:var(--accent);">SEED</span>`;
+  return `<span style="${base}color:var(--text2);">HD</span>`;
+}
+
+function renderAccountsScreen() {
+  const box = document.getElementById('accounts-list');
+  if (!box) return;
+  if (!state.accounts.length) { box.innerHTML = '<div class="fs12 muted">Нет аккаунтов</div>'; return; }
+  const canRemove = state.accounts.length > 1;
+  box.innerHTML = state.accounts.map(a => {
+    const addr = a.address?.base58 || '';
+    const short = addr ? addr.slice(0, 8) + '…' + addr.slice(-6) : '—';
+    const isActive = a.id === state.activeAccountId;
+    return `<div class="card mb8 acct-row" data-id="${a.id}" style="cursor:pointer;${isActive ? 'border-color:var(--accent);' : ''}">
+      <div class="flex flex-center justify-between">
+        <div class="flex flex-center gap8" style="min-width:0;">
+          <div class="address-avatar" style="width:30px;height:30px;border-radius:50%;flex-shrink:0;"></div>
+          <div style="min-width:0;">
+            <div class="flex flex-center gap8">
+              <span class="fw600 fs13 truncate">${escapeHtml(a.name)}</span>
+              ${acctTypeBadge(a)}
+              ${isActive ? '<span class="accent fs11">● активен</span>' : ''}
+            </div>
+            <div class="mono fs11 muted truncate">${short}</div>
+          </div>
+        </div>
+        <div class="flex gap8" style="flex-shrink:0;">
+          <button class="btn-icon acct-rename" data-id="${a.id}" title="Переименовать">✏️</button>
+          ${canRemove ? `<button class="btn-icon acct-remove" data-id="${a.id}" title="Удалить">🗑️</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  box.querySelectorAll('.acct-row').forEach(row => row.addEventListener('click', e => {
+    if (e.target.closest('.acct-rename') || e.target.closest('.acct-remove')) return;
+    switchAccount(row.dataset.id);
+  }));
+  box.querySelectorAll('.acct-rename').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation(); renameAccountUI(b.dataset.id);
+  }));
+  box.querySelectorAll('.acct-remove').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation(); removeAccountUI(b.dataset.id);
+  }));
+}
+
+async function switchAccount(id) {
+  if (id === state.activeAccountId) { showScreen('screen-wallet'); return; }
+  try {
+    const address = await sendToSW('wallet.switchAccount', { id });
+    state.activeAccountId = id;
+    state.address = address;
+    state.balanceSun = 0;
+    showScreen('screen-wallet');
+    showWalletTab('assets');
+    loadBalance();
+    setTimeout(loadTokenBalances, 600);
+    const a = state.accounts.find(x => x.id === id);
+    toast(`Аккаунт: ${a?.name || ''}`, 'success');
+  } catch (e) {
+    toast(e.message || 'Ошибка переключения', 'error');
+  }
+}
+
+async function renameAccountUI(id) {
+  const a = state.accounts.find(x => x.id === id);
+  const name = window.prompt('Новое имя аккаунта:', a?.name || '');
+  if (name == null || !name.trim()) return;
+  try {
+    await sendToSW('wallet.renameAccount', { id, name: name.trim() });
+    await loadAccounts();
+    renderAccountsScreen();
+  } catch (e) {
+    toast(e.message || 'Ошибка', 'error');
+  }
+}
+
+async function removeAccountUI(id) {
+  const a = state.accounts.find(x => x.id === id);
+  if (!window.confirm(`Удалить аккаунт «${a?.name || ''}»?\nУбедитесь, что сохранён его приватный ключ / seed — восстановить будет нельзя.`)) return;
+  try {
+    const res = await sendToSW('wallet.removeAccount', { id });
+    await loadAccounts();
+    if (res?.activeAddress) state.address = res.activeAddress;
+    renderAccountsScreen();
+    loadBalance();
+    toast('Аккаунт удалён', 'success');
+  } catch (e) {
+    toast(e.message || 'Ошибка удаления', 'error');
+  }
+}
+
+async function addHdAccount() {
+  const btn = document.getElementById('btn-add-hd');
+  if (btn) { btn.disabled = true; btn.textContent = 'Создаю…'; }
+  try {
+    const acc = await sendToSW('wallet.addAccount', {});
+    await loadAccounts();
+    renderAccountsScreen();
+    toast(`Создан: ${acc?.name || 'аккаунт'}`, 'success');
+  } catch (e) {
+    toast(e.message || 'Ошибка создания', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '＋ Создать HD-аккаунт'; }
+  }
+}
+
+function toggleImportForm(which) {
+  const k = document.getElementById('import-key-form');
+  const s = document.getElementById('import-seed-form');
+  if (which === 'key') {
+    k.style.display = (k.style.display === 'none') ? '' : 'none';
+    s.style.display = 'none';
+  } else {
+    s.style.display = (s.style.display === 'none') ? '' : 'none';
+    k.style.display = 'none';
+  }
+}
+
+async function doImportKey() {
+  const pk = document.getElementById('imp-key-value')?.value.trim();
+  const name = document.getElementById('imp-key-name')?.value.trim();
+  if (!pk) { toast('Введите приватный ключ', 'error'); return; }
+  const btn = document.getElementById('btn-do-import-key');
+  if (btn) { btn.disabled = true; btn.textContent = 'Импорт…'; }
+  try {
+    const acc = await sendToSW('wallet.importAccountKey', { privateKey: pk, name });
+    document.getElementById('imp-key-value').value = '';
+    document.getElementById('imp-key-name').value = '';
+    document.getElementById('import-key-form').style.display = 'none';
+    await loadAccounts();
+    renderAccountsScreen();
+    toast(`Импортирован: ${acc?.name || ''}`, 'success');
+  } catch (e) {
+    toast(e.message || 'Ошибка импорта', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Импортировать'; }
+  }
+}
+
+async function doImportSeed() {
+  const mnemonic = document.getElementById('imp-seed-value')?.value.trim();
+  const name = document.getElementById('imp-seed-name')?.value.trim();
+  if (!mnemonic) { toast('Введите seed-фразу', 'error'); return; }
+  const btn = document.getElementById('btn-do-import-seed');
+  if (btn) { btn.disabled = true; btn.textContent = 'Импорт…'; }
+  try {
+    const acc = await sendToSW('wallet.importAccountSeed', { mnemonic, name });
+    document.getElementById('imp-seed-value').value = '';
+    document.getElementById('imp-seed-name').value = '';
+    document.getElementById('import-seed-form').style.display = 'none';
+    await loadAccounts();
+    renderAccountsScreen();
+    toast(`Кошелёк добавлен: ${acc?.name || ''}`, 'success');
+  } catch (e) {
+    toast(e.message || 'Ошибка импорта', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Импортировать кошелёк'; }
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -2811,10 +3216,13 @@ function bindTabEvents(tab) {
 
   if (tab === 'assets') {
     on('tab-copy-addr',      copyAddress);
+    on('account-switcher',   openAccountsScreen);
     // Обновляем балансы токенов при каждом открытии вкладки
     if (state.orc20Tokens.length > 0) setTimeout(loadTokenBalances, 500);
     // Клик по строке токена → открыть экран отправки
     document.getElementById('wallet-tab-content')?.addEventListener('click', e => {
+      const orgonRow = e.target.closest('[data-asset="orgon"]');
+      if (orgonRow) { openSend(); return; }
       const row = e.target.closest('[data-token-contract]');
       if (row) {
         const contract = row.dataset.tokenContract;
@@ -2848,11 +3256,13 @@ function bindTabEvents(tab) {
   if (tab === 'settings') {
     on('tab-btn-copy-settings',  copyAddress);
     on('tab-row-network',        showNetworkSelector);
+    on('tab-row-notify',         toggleNotifications);
+    on('tab-row-contacts',       () => openContactsScreen());
     on('tab-row-export-key',  () => openExportKey());
     on('tab-row-staking',     () => openStaking());
     on('tab-row-voting',      () => openVoting());
     on('tab-row-export-seed', () => openExportSeed());
-    on('tab-row-about',          () => toast('OrgonLink v0.1.0'));
+    on('tab-row-about',          () => toast('OrgonLink v' + chrome.runtime.getManifest().version));
     on('tab-btn-reset',          resetWallet);
     // tab-btn-explorer привязывается в showTxDetail напрямую
   }
@@ -2885,6 +3295,9 @@ function showWalletTab(tab) {
 function renderAssetsTab() {
   const addr = state.address?.base58 || '—';
   const addrShort = addr !== '—' ? addr.slice(0,8)+'...'+addr.slice(-6) : '—';
+  const acct = state.accounts.find(a => a.id === state.activeAccountId);
+  const acctName = acct?.name || 'Аккаунт 1';
+  const acctCount = state.accounts.length || 1;
   const orgon = (state.balanceSun / 1_000_000).toFixed(6);
   const price = state.orgonPriceUsd ?? 0;
   const usd = (state.balanceSun / 1_000_000 * price).toFixed(2);
@@ -2909,6 +3322,12 @@ function renderAssetsTab() {
 
   return `
     <div class="balance-hero">
+      <div class="account-switcher" id="account-switcher" style="display:inline-flex;align-items:center;gap:6px;margin:0 auto 10px;padding:5px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">
+        <div class="address-avatar" style="width:18px;height:18px;border-radius:50%;"></div>
+        <span>${acctName}</span>
+        <span class="muted" style="font-weight:400;">· ${acctCount}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+      </div>
       <div class="balance-amount" id="balance-display">${state.isLoading ? '...' : orgon}</div>
       <div class="balance-usd">≈ $${usd} USD</div>
       <div class="balance-change up" style="margin: 8px auto 12px; display:inline-flex;">
@@ -2938,7 +3357,7 @@ function renderAssetsTab() {
     </div>
 
     <div style="background:var(--bg2);border-top:1px solid var(--border);border-bottom:1px solid var(--border);">
-      <div class="token-row">
+      <div class="token-row" data-asset="orgon" style="cursor:pointer;">
         <div class="token-icon orgon">ORG</div>
         <div class="token-info">
           <div class="token-name">ORGON</div>
@@ -3110,6 +3529,28 @@ function renderSettingsTab() {
       <div class="settings-row-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
     </div>
 
+    <div class="settings-row" id="tab-row-notify">
+      <div class="settings-row-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </div>
+      <div class="settings-row-text">
+        <div class="settings-row-title">Уведомления</div>
+        <div class="settings-row-sub">${state.notifyEnabled ? 'Push при входящих ORGON' : 'Выключены'}</div>
+      </div>
+      <div class="settings-row-arrow" style="font-size:11px;font-weight:700;color:${state.notifyEnabled ? 'var(--accent)' : 'var(--text2)'};">${state.notifyEnabled ? 'ВКЛ' : 'ВЫКЛ'}</div>
+    </div>
+
+    <div class="settings-row" id="tab-row-contacts">
+      <div class="settings-row-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></svg>
+      </div>
+      <div class="settings-row-text">
+        <div class="settings-row-title">Адресная книга</div>
+        <div class="settings-row-sub">Сохранённые контакты</div>
+      </div>
+      <div class="settings-row-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
+    </div>
+
     <div class="settings-row" id="tab-row-staking">
         <div class="settings-row-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
@@ -3160,7 +3601,7 @@ function renderSettingsTab() {
       </div>
       <div class="settings-row-text">
         <div class="settings-row-title">О расширении</div>
-        <div class="settings-row-sub">OrgonLink v0.1.0</div>
+        <div class="settings-row-sub">OrgonLink v${chrome.runtime.getManifest().version}</div>
       </div>
       <div class="settings-row-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
     </div>
@@ -3425,6 +3866,60 @@ function openSend() {
   const balEl = document.getElementById('send-balance');
   if (fromEl) fromEl.textContent = state.address?.base58 || '—';
   if (balEl) balEl.textContent = (state.balanceSun / 1_000_000).toFixed(6) + ' ORGON';
+  renderAssetPicker('send-asset-picker', 'orgon');
+}
+
+// ── Селектор актива (ORGON + oRC-20) ──────────────────────
+function buildAssetList() {
+  const orgon = { key: 'orgon', kind: 'orgon', symbol: 'ORGON', name: 'Нативный токен', balanceFloat: state.balanceSun / 1_000_000 };
+  const tokens = (state.orc20Tokens || []).map(t => ({
+    key: 'tok:' + t.contract, kind: 'token',
+    symbol: t.symbol, name: t.name, balanceFloat: t.balanceFloat ?? 0, token: t,
+  }));
+  return [orgon, ...tokens];
+}
+
+function assetIconHtml(a) {
+  if (a.kind === 'orgon') return '<div class="token-icon orgon" style="width:30px;height:30px;font-size:10px;">ORG</div>';
+  return `<div class="token-icon orc20" style="width:30px;height:30px;font-size:10px;">${(a.symbol || 'ORC').slice(0, 3)}</div>`;
+}
+
+function selectSendAsset(key) {
+  if (key === 'orgon') { openSend(); return; }
+  const t = (state.orc20Tokens || []).find(x => 'tok:' + x.contract === key);
+  if (t) openSendToken(t);
+}
+
+function renderAssetPicker(pickerId, currentKey) {
+  const root = document.getElementById(pickerId);
+  if (!root) return;
+  const cur  = root.querySelector('.ap-current');
+  const list = root.querySelector('.ap-list');
+  if (!cur || !list) return;
+
+  const assets = buildAssetList();
+  const active = assets.find(a => a.key === currentKey) || assets[0];
+
+  cur.querySelector('.ap-icon').innerHTML  = assetIconHtml(active);
+  cur.querySelector('.ap-symbol').textContent  = active.symbol;
+  cur.querySelector('.ap-balance').textContent = active.balanceFloat.toFixed(6) + ' ' + active.symbol;
+
+  list.innerHTML = assets.map(a => `
+    <div class="ap-item" data-key="${a.key}" style="display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer;border-bottom:1px solid var(--border);${a.key === active.key ? 'background:var(--bg2);' : ''}">
+      ${assetIconHtml(a)}
+      <div style="flex:1;min-width:0;">
+        <div class="fw600 fs13">${a.symbol}</div>
+        <div class="fs11 muted truncate">${escapeHtml(a.name || '')}</div>
+      </div>
+      <div class="mono fs12 accent">${a.balanceFloat.toFixed(4)}</div>
+    </div>`).join('');
+  list.style.display = 'none';
+
+  cur.onclick = () => { list.style.display = (list.style.display === 'none') ? 'block' : 'none'; };
+  list.querySelectorAll('.ap-item').forEach(el => el.onclick = () => {
+    list.style.display = 'none';
+    selectSendAsset(el.dataset.key);
+  });
 }
 
 function sendMax() {
@@ -4030,6 +4525,7 @@ function openSendToken(token) {
   document.getElementById('send-token-amount').value = '';
 
   showScreen('screen-send-token');
+  renderAssetPicker('sendtok-asset-picker', 'tok:' + token.contract);
 }
 
 async function sendToken() {
@@ -4208,6 +4704,112 @@ async function doWithdraw() {
     toast(e.message || 'Ошибка вывода', 'error');
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Получить'; }
+  }
+}
+
+// ═══════════════════════════════════════════════════
+//  ДЕЛЕГИРОВАНИЕ ресурсов
+// ═══════════════════════════════════════════════════
+
+function setDelegateMode(mode) {
+  state.delegateMode = mode;
+  const give = mode === 'give';
+  document.getElementById('dlg-mode-give').className = 'btn ' + (give ? 'btn-primary' : 'btn-secondary');
+  document.getElementById('dlg-mode-take').className = 'btn ' + (give ? 'btn-secondary' : 'btn-primary');
+  const lockRow = document.getElementById('dlg-lock-row');
+  if (lockRow) lockRow.style.display = give ? '' : 'none';
+  const btn = document.getElementById('btn-do-delegate');
+  if (btn) btn.textContent = give ? '🤝 Делегировать' : '↩️ Отозвать';
+  updateDelegateAvail();
+}
+
+async function updateDelegateAvail() {
+  const el = document.getElementById('dlg-avail');
+  if (!el) return;
+  if (state.delegateMode === 'take') { el.textContent = 'см. список ниже'; return; }
+  try {
+    const res = await sendToSW('wallet.getCanDelegatedMaxSize', { resource: state.delegateResource || 'BANDWIDTH' });
+    const orgon = (res?.max_size ?? 0) / 1e6;
+    state.delegateMaxOrgon = orgon;
+    el.textContent = orgon.toFixed(2) + ' ORGON';
+  } catch {
+    el.textContent = '—';
+  }
+}
+
+async function loadDelegations() {
+  const box = document.getElementById('dlg-list');
+  if (!box) return;
+  box.innerHTML = '<div class="fs11 muted">Загрузка…</div>';
+  try {
+    const list = await sendToSW('wallet.getDelegations', {});
+    if (!list || !list.length) { box.innerHTML = '<div class="fs11 muted">Нет активных делегирований</div>'; return; }
+    box.innerHTML = list.map(d => {
+      const isEnergy = !!d.frozen_balance_for_energy;
+      const sun   = d.frozen_balance_for_energy ?? d.frozen_balance_for_bandwidth ?? 0;
+      const orgon = (sun / 1e6).toFixed(2);
+      const to    = d.to || d.receiver || '';
+      const short = to ? to.slice(0, 6) + '…' + to.slice(-4) : '?';
+      const resLabel = isEnergy ? 'Energy' : 'Bandwidth';
+      const resCode  = isEnergy ? 'ENERGY' : 'BANDWIDTH';
+      const id = storeTxData({ to, resCode, sun });
+      return `<div class="card-sm mb6 flex justify-between flex-center">
+        <div><div class="mono fs11">${short}</div><div class="fs11 muted">${resLabel} · ${orgon} ORGON</div></div>
+        <button class="btn btn-secondary dlg-reclaim" data-id="${id}" style="width:auto;height:30px;font-size:11px;padding:0 10px;">Отозвать</button>
+      </div>`;
+    }).join('');
+    box.querySelectorAll('.dlg-reclaim').forEach(b => b.addEventListener('click', () => {
+      const d = getTxData(b.dataset.id);
+      if (d) reclaimDelegation(d.to, d.resCode, d.sun);
+    }));
+  } catch (e) {
+    box.innerHTML = `<div class="fs11 muted">Ошибка: ${e.message || e}</div>`;
+  }
+}
+
+async function reclaimDelegation(to, resource, sun) {
+  try {
+    await sendToSW('wallet.undelegateResource', { receiver: to, amount: sun, resource });
+    toast('✓ Ресурс отозван', 'success');
+    await loadResources();
+    await loadDelegations();
+  } catch (e) {
+    toast(e.message || 'Ошибка отзыва', 'error');
+  }
+}
+
+async function doDelegate() {
+  const receiver    = document.getElementById('dlg-receiver')?.value.trim();
+  const amountOrgon = parseFloat(document.getElementById('dlg-amount')?.value);
+  if (!receiver) { toast('Введите адрес получателя', 'error'); return; }
+  if (!amountOrgon || amountOrgon < 1) { toast('Минимум 1 ORGON', 'error'); return; }
+
+  const give = state.delegateMode !== 'take';
+  const btn = document.getElementById('btn-do-delegate');
+  if (btn) { btn.disabled = true; btn.textContent = give ? 'Делегирую…' : 'Отзываю…'; }
+
+  try {
+    const amount   = Math.round(amountOrgon * 1e6);
+    const resource = state.delegateResource || 'BANDWIDTH';
+    if (give) {
+      await sendToSW('wallet.delegateResource', {
+        receiver, amount, resource,
+        lock: !!state.delegateLock,
+        lockPeriod: state.delegateLock ? 86400 : undefined, // ~3 дня (3с/блок ≈ 86400 блоков)
+      });
+      toast(`✓ Делегировано ${amountOrgon} ORGON (${resource})`, 'success');
+    } else {
+      await sendToSW('wallet.undelegateResource', { receiver, amount, resource });
+      toast(`✓ Отозвано ${amountOrgon} ORGON (${resource})`, 'success');
+    }
+    document.getElementById('dlg-amount').value = '';
+    await loadResources();
+    await loadDelegations();
+    await updateDelegateAvail();
+  } catch (e) {
+    toast(e.message || 'Ошибка делегирования', 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = give ? '🤝 Делегировать' : '↩️ Отозвать'; }
   }
 }
 
