@@ -2528,6 +2528,14 @@ function bindEvents() {
   on('send-pick-contact',       'click', () => openContactsScreen('send-to', 'screen-send'));
   on('send-token-pick-contact', 'click', () => openContactsScreen('send-token-to', 'screen-send-token'));
 
+  // ── Multisig (Фаза A) ──
+  document.querySelectorAll('#screen-multisig .back-btn').forEach(btn =>
+    btn.addEventListener('click', () => showScreen('screen-wallet'))
+  );
+  on('btn-ms-add-signer', 'click', addMsSigner);
+  on('btn-ms-create',     'click', createMultisig);
+  on('ms-threshold',      'input', updateMsThresholdHint);
+
   // ── Approval ──
   on('btn-reject-approval', 'click', rejectApproval);
   on('btn-approve-approval','click', approveApproval);
@@ -3030,6 +3038,130 @@ async function deleteContact(id) {
   toast('Контакт удалён', 'success');
 }
 
+// ═══════════════════════════════════════════════════
+//  МУЛЬТИПОДПИСЬ (Фаза A — настройка прав аккаунта)
+// ═══════════════════════════════════════════════════
+
+let msSigners = [];
+
+const MS_TX_TYPES = [
+  { label: 'Перевод ORGON',            ids: [1],      def: true  },
+  { label: 'Токены / смарт-контракты', ids: [31],     def: true  },
+  { label: 'Заморозка / разморозка',   ids: [54, 55], def: false },
+  { label: 'Делегирование ресурсов',   ids: [57, 58], def: false },
+  { label: 'Голосование',              ids: [4],      def: false },
+  { label: 'Вывод наград',             ids: [13, 56], def: false },
+];
+
+async function openMultisigScreen() {
+  showScreen('screen-multisig');
+  const statusEl = document.getElementById('ms-status');
+  const editor   = document.getElementById('ms-editor');
+  statusEl.innerHTML = '<div class="fs12 muted">Загрузка…</div>';
+  editor.style.display = 'none';
+
+  let info;
+  try { info = await sendToSW('wallet.getAccountPermissions'); }
+  catch (e) { statusEl.innerHTML = `<div class="fs12" style="color:#e5484d;">Ошибка: ${escapeHtml(e.message || String(e))}</div>`; return; }
+
+  if (info.isMultisig) {
+    const o = info.owner || {};
+    const rows = (o.keys || []).map(k =>
+      `<div class="flex justify-between fs12" style="margin-top:2px;"><span class="mono truncate">${escapeHtml(String(k.address || ''))}</span><span class="muted">вес ${k.weight}</span></div>`
+    ).join('');
+    statusEl.innerHTML =
+      `<div class="fw600 fs13 mb6">✅ Аккаунт мультиподписной</div>
+       <div class="fs12 muted mb8">Owner: порог ${o.threshold}, ключей ${(o.keys || []).length}</div>
+       ${rows}
+       <div class="fs11 muted" style="margin-top:8px;line-height:1.5;">Изменение прав мультиподписного аккаунта требует сбора подписей — появится в Фазе B.</div>`;
+    return;
+  }
+
+  statusEl.innerHTML =
+    `<div class="fw600 fs13 mb4">Текущий режим: одиночная подпись</div>
+     <div class="fs11 muted" style="line-height:1.5;">Добавьте подписантов и задайте порог, чтобы перевести аккаунт в мультиподпись.</div>`;
+  msSigners = [{ address: state.address?.base58 || info.address, weight: 1, self: true }];
+  const thrEl = document.getElementById('ms-threshold');
+  if (thrEl) thrEl.value = 2;
+  renderMsSigners();
+  renderMsOps();
+  editor.style.display = 'block';
+}
+
+function renderMsSigners() {
+  const box = document.getElementById('ms-signers');
+  if (!box) return;
+  box.innerHTML = msSigners.map((s, i) => `
+    <div class="flex gap8 mb6" style="align-items:center;">
+      <input type="text" class="ms-addr" data-i="${i}" placeholder="o... адрес" value="${escapeHtml(s.address || '')}" ${s.self ? 'readonly' : ''} spellcheck="false" style="flex:1;${s.self ? 'opacity:.7;' : ''}">
+      <input type="number" class="ms-weight" data-i="${i}" min="1" value="${s.weight}" inputmode="numeric" style="width:60px;" title="вес">
+      ${s.self ? '<span class="fs11 muted" style="width:46px;">вы</span>'
+               : `<button class="btn-icon ms-del" data-i="${i}" title="Удалить">🗑️</button>`}
+    </div>`).join('');
+
+  box.querySelectorAll('.ms-addr').forEach(el => el.addEventListener('input', () => { msSigners[+el.dataset.i].address = el.value.trim(); }));
+  box.querySelectorAll('.ms-weight').forEach(el => el.addEventListener('input', () => { msSigners[+el.dataset.i].weight = Math.max(1, parseInt(el.value) || 1); updateMsThresholdHint(); }));
+  box.querySelectorAll('.ms-del').forEach(el => el.addEventListener('click', () => { msSigners.splice(+el.dataset.i, 1); renderMsSigners(); updateMsThresholdHint(); }));
+  updateMsThresholdHint();
+}
+
+function addMsSigner() {
+  msSigners.push({ address: '', weight: 1, self: false });
+  renderMsSigners();
+}
+
+function renderMsOps() {
+  const box = document.getElementById('ms-ops');
+  if (!box) return;
+  box.innerHTML = MS_TX_TYPES.map((t, i) => `
+    <label class="flex gap8 mb6" style="align-items:center;cursor:pointer;">
+      <input type="checkbox" class="ms-op" data-i="${i}" ${t.def ? 'checked' : ''}>
+      <span class="fs13">${t.label}</span>
+    </label>`).join('');
+}
+
+function updateMsThresholdHint() {
+  const total = msSigners.reduce((s, x) => s + (Number(x.weight) || 0), 0);
+  const thr   = parseInt(document.getElementById('ms-threshold')?.value) || 0;
+  const el = document.getElementById('ms-threshold-hint');
+  if (!el) return;
+  const warn = thr > total ? ' <span style="color:#e5484d;">порог больше суммы весов!</span>' : '';
+  el.innerHTML = `Сумма весов: <b>${total}</b> · нужно набрать вес ≥ порога для подтверждения.${warn}`;
+}
+
+async function createMultisig() {
+  const signers = msSigners.map(s => ({ address: (s.address || '').trim(), weight: Number(s.weight) || 0 }));
+  const threshold = parseInt(document.getElementById('ms-threshold').value) || 0;
+  const opIds = [];
+  document.querySelectorAll('#ms-ops .ms-op').forEach(cb => { if (cb.checked) opIds.push(...MS_TX_TYPES[+cb.dataset.i].ids); });
+
+  if (signers.some(s => !s.address.startsWith('o') || s.address.length < 30)) { toast('Проверьте адреса подписантов', 'error'); return; }
+  if (new Set(signers.map(s => s.address)).size !== signers.length) { toast('Адреса подписантов повторяются', 'error'); return; }
+  const total = signers.reduce((a, s) => a + s.weight, 0);
+  if (threshold < 1 || threshold > total) { toast(`Порог должен быть от 1 до ${total}`, 'error'); return; }
+  if (!opIds.length) { toast('Выберите хотя бы один тип транзакций', 'error'); return; }
+  const selfAddr = state.address?.base58;
+  if (!signers.some(s => s.address === selfAddr)) { toast('Ваш адрес должен быть среди подписантов', 'error'); return; }
+
+  const summary =
+    `Перевести аккаунт в мультиподпись?\n\n` +
+    `Подписантов: ${signers.length}\nПорог: ${threshold} из ${total}\n\n` +
+    `ЭТО НЕОБРАТИМО. Убедитесь, что у вас есть доступ к ключам всех подписантов.`;
+  if (!window.confirm(summary)) return;
+
+  const btn = document.getElementById('btn-ms-create');
+  btn.disabled = true; btn.textContent = 'Отправка…';
+  try {
+    await sendToSW('wallet.updateAccountPermissions', { threshold, activeThreshold: threshold, signers, operationIds: opIds });
+    toast('✓ Мультиподпись настроена', 'success');
+    setTimeout(openMultisigScreen, 1500);
+  } catch (e) {
+    toast('Ошибка: ' + (e.message || e), 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Создать мультиподпись';
+  }
+}
+
 function openAccountsScreen() {
   showScreen('screen-accounts');
   const k = document.getElementById('import-key-form');  if (k) k.style.display = 'none';
@@ -3258,6 +3390,7 @@ function bindTabEvents(tab) {
     on('tab-row-network',        showNetworkSelector);
     on('tab-row-notify',         toggleNotifications);
     on('tab-row-contacts',       () => openContactsScreen());
+    on('tab-row-multisig',       openMultisigScreen);
     on('tab-row-export-key',  () => openExportKey());
     on('tab-row-staking',     () => openStaking());
     on('tab-row-voting',      () => openVoting());
@@ -3547,6 +3680,17 @@ function renderSettingsTab() {
       <div class="settings-row-text">
         <div class="settings-row-title">Адресная книга</div>
         <div class="settings-row-sub">Сохранённые контакты</div>
+      </div>
+      <div class="settings-row-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
+    </div>
+
+    <div class="settings-row" id="tab-row-multisig">
+      <div class="settings-row-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1l3 6 6 .9-4.5 4.4 1 6.2L12 16l-5.5 2.5 1-6.2L3 7.9 9 7z"/></svg>
+      </div>
+      <div class="settings-row-text">
+        <div class="settings-row-title">Мультиподпись</div>
+        <div class="settings-row-sub">Несколько подписантов для аккаунта</div>
       </div>
       <div class="settings-row-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
     </div>

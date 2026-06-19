@@ -1497,6 +1497,47 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════
+     SCREEN: MULTISIG (мультиподпись — Фаза A)
+═══════════════════════════════════════════════════ -->
+<div class="screen" id="screen-multisig">
+  <div class="top-bar">
+    <button class="back-btn" id="btn-back-from-multisig">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
+      Назад
+    </button>
+    <span class="top-bar-title" style="font-size:13px;">Мультиподпись</span>
+    <div style="width:50px"></div>
+  </div>
+  <div class="scroll-area p16">
+    <div id="ms-status" class="card mb14"><div class="fs12 muted">Загрузка…</div></div>
+
+    <div id="ms-editor" style="display:none;">
+      <div class="label mb8">Подписанты (адрес + вес)</div>
+      <div id="ms-signers" class="mb8"></div>
+      <button class="btn btn-secondary mb14" id="btn-ms-add-signer" style="width:100%;height:34px;font-size:12px;">＋ Добавить подписанта</button>
+
+      <div class="input-group mb6">
+        <label class="input-label">Порог подписей (threshold)</label>
+        <input type="number" id="ms-threshold" min="1" value="2" inputmode="numeric">
+      </div>
+      <div class="fs11 muted mb14" id="ms-threshold-hint"></div>
+
+      <div class="label mb8">Разрешённые типы транзакций</div>
+      <div id="ms-ops" class="mb14"></div>
+
+      <div class="card mb14" style="border:1px solid #e5484d;background:rgba(229,72,77,.08);">
+        <div class="fs12" style="color:#e5484d;font-weight:700;">⚠️ Необратимое действие</div>
+        <div class="fs11 muted" style="margin-top:4px;line-height:1.5;">
+          Транзакция переписывает права аккаунта. Если порог станет недостижимым (или потеряете ключи подписантов), доступ к средствам будет утрачен безвозвратно. Проверьте адреса и пороги. Рекомендуется сначала проверить в Quasar testnet.
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="btn-ms-create" style="width:100%;">Создать мультиподпись</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
      SCREEN: CONTACTS (адресная книга)
 ═══════════════════════════════════════════════════ -->
 <div class="screen" id="screen-contacts">

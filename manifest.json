@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "OrgonLink",
-  "version": "0.8.1",
-  "version_name": "0.8.1",
-  "description": "OrgonLink Wallet — браузерный кошелёк для блокчейна Orgon",
+  "version": "0.10.0",
+  "version_name": "0.10.0",
+  "description": "OrgonLink — несохранный кошелёк для блокчейна Orgon: переводы, oRC-20, стейкинг, делегирование и подключение к dApp.",
   "permissions": [
     "storage",
     "unlimitedStorage",
@@ -13,9 +13,7 @@
     "notifications"
   ],
   "host_permissions": [
-    "https://*/*",
-    "http://localhost/*",
-    "file:///*"
+    "https://*/*"
   ],
   "background": {
     "service_worker": "dist/background/service_worker.js"
@@ -23,9 +21,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*/*",
-        "http://localhost/*",
-        "file:///*"
+        "https://*/*"
       ],
       "js": [
         "dist/provider/orgonWeb.js"
@@ -35,9 +31,7 @@
     },
     {
       "matches": [
-        "https://*/*",
-        "http://localhost/*",
-        "file:///*"
+        "https://*/*"
       ],
       "js": [
         "dist/content/bridge.js"
@@ -65,13 +59,12 @@
         "dist/provider/orgonWeb.js"
       ],
       "matches": [
-        "https://*/*",
-        "http://localhost/*",
-        "file:///*"
+        "https://*/*"
       ]
     }
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self';"
-  }
+  },
+  "homepage_url": "https://orgon.space"
 }
