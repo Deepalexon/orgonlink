@@ -2310,6 +2310,7 @@ const state = {
   contactReturnScreen: null,
   editingContactId: null,
   multisigInfo: { isMultisig: false, owner: null, actives: [] },
+  pendingSignCount: 0,
   balanceSun: 0,
   tokens: [],
   txHistory: [],
@@ -2736,6 +2737,7 @@ async function init() {
       showWalletTab('assets');
       loadBalance();
       loadMultisigStatus();
+      loadPendingSignCount();
       // Обновляем балансы токенов через 1 сек
       setTimeout(loadTokenBalances, 1000);
       // Автообновление баланса каждые 10 секунд пока popup открыт
@@ -3098,6 +3100,24 @@ async function loadMultisigStatus() {
   if (badge) badge.style.display = state.multisigInfo?.isMultisig ? 'inline-flex' : 'none';
 }
 
+// Считает транзакции, ждущие подписи активного адреса (любой аккаунт может быть со-подписантом),
+// и показывает баннер на главном экране.
+async function loadPendingSignCount() {
+  let list = [];
+  try { list = await sendToSW('wallet.multisigList'); } catch { list = []; }
+  const me = state.address?.base58;
+  const need = (list || []).filter(t =>
+    String(t.status || 'pending') === 'pending' &&
+    (t.requiredSignatures || []).some(r => r.address === me) &&
+    !(t.signatures || []).some(s => s.address === me)
+  );
+  state.pendingSignCount = need.length;
+  const banner = document.getElementById('pending-sign-banner');
+  const txt = document.getElementById('pending-sign-text');
+  if (txt) txt.textContent = `🔐 Ждут вашей подписи: ${need.length}`;
+  if (banner) banner.style.display = need.length ? 'flex' : 'none';
+}
+
 async function openMultisigScreen() {
   showScreen('screen-multisig');
   const statusEl = document.getElementById('ms-status');
@@ -3124,19 +3144,23 @@ async function openMultisigScreen() {
                 <div class="label mb4">Active — порог ${act.threshold}</div>
                 <div class="fs11 muted mb4">Разрешённые операции:</div>
                 <div class="fs12">${actLabels.length ? actLabels.map(l => '• ' + escapeHtml(l)).join('<br>') : '<span class="muted">(не распознаны)</span>'}</div>` : ''}
-       <div class="fs11 muted" style="margin-top:12px;line-height:1.5;">Изменение прав и отправка с мультиподписного аккаунта требуют сбора подписей — появится в Фазе B.</div>`;
+       <div class="fs11 muted" style="margin-top:12px;line-height:1.5;">Отправка с этого аккаунта создаёт транзакцию, которую подписывают несколько сторон (порог ${o.threshold} из ${totalW} по весу).</div>`;
+    loadMsPending();
     return;
   }
 
   statusEl.innerHTML =
     `<div class="fw600 fs13 mb4">Текущий режим: одиночная подпись</div>
      <div class="fs11 muted" style="line-height:1.5;">Добавьте подписантов и задайте порог, чтобы перевести аккаунт в мультиподпись.</div>`;
+  const pendBox = document.getElementById('ms-pending');
+  if (pendBox) pendBox.innerHTML = '';
   msSigners = [{ address: state.address?.base58 || info.address, weight: 1, self: true }];
   const thrEl = document.getElementById('ms-threshold');
   if (thrEl) thrEl.value = 2;
   renderMsSigners();
   renderMsOps();
   editor.style.display = 'block';
+  loadMsPending();
 }
 
 function renderMsSigners() {
@@ -3213,6 +3237,73 @@ async function createMultisig() {
   }
 }
 
+// ── Фаза B: ожидающие мультиподписные транзакции ──
+async function loadMsPending() {
+  const box = document.getElementById('ms-pending');
+  if (!box) return;
+  box.innerHTML = '<div class="divider" style="margin:14px 0;"></div><div class="fs12 muted">Загрузка ожидающих…</div>';
+  let list;
+  try { list = await sendToSW('wallet.multisigList'); }
+  catch (e) {
+    box.innerHTML = `<div class="divider" style="margin:14px 0;"></div><div class="label mb6">Ожидающие подписи</div><div class="fs12 muted">Не удалось загрузить: ${escapeHtml(e.message || String(e))}</div>`;
+    return;
+  }
+  const pend = (list || []).filter(t => String(t.status || 'pending') === 'pending');
+  let html = '<div class="divider" style="margin:14px 0;"></div>' +
+             `<div class="flex justify-between flex-center mb8"><span class="label">Ожидающие подписи (${pend.length})</span>` +
+             `<span class="send-max fs11" id="ms-pending-refresh">Обновить</span></div>`;
+  html += pend.length ? pend.map(renderPendingRow).join('')
+                      : '<div class="fs12 muted">Нет ожидающих транзакций.</div>';
+  box.innerHTML = html;
+
+  document.getElementById('ms-pending-refresh')?.addEventListener('click', loadMsPending);
+  box.querySelectorAll('.ms-sign-btn').forEach(b => b.addEventListener('click', () => signPending(b.dataset.hash)));
+}
+
+function renderPendingRow(t) {
+  const myAddr = state.address?.base58;
+  const sigs = t.signatures || [];
+  const req  = t.requiredSignatures || [];
+  const collected = req.filter(r => sigs.some(s => s.address === r.address))
+                       .reduce((a, r) => a + (Number(r.weight) || 0), 0);
+  const threshold = t.threshold ?? 0;
+  const enough = threshold && collected >= threshold;
+  const iSigned = sigs.some(s => s.address === myAddr);
+  const iAuth   = req.some(r => r.address === myAddr);
+  const hash  = String(t.hash || '');
+  const short = hash.slice(0, 10) + '…' + hash.slice(-6);
+  const recip = t.recipientAddress ? (String(t.recipientAddress).slice(0, 8) + '…' + String(t.recipientAddress).slice(-6)) : '';
+
+  let action;
+  if (iSigned)      action = '<span class="fs11 accent">✓ Вы подписали</span>';
+  else if (iAuth)   action = `<button class="btn btn-primary ms-sign-btn" data-hash="${hash}" style="height:32px;font-size:12px;width:100%;">Подписать</button>`;
+  else              action = '<span class="fs11 muted">Вы не в списке подписантов</span>';
+
+  return `<div class="card mb8">
+    <div class="flex justify-between flex-center">
+      <div class="mono fs11 muted">${short}</div>
+      <div class="fs11 ${enough ? 'accent' : ''}" style="font-weight:700;">${collected} / ${threshold}${enough ? ' ✓' : ''}</div>
+    </div>
+    ${recip ? `<div class="fs11 muted" style="margin-top:3px;">→ ${recip}</div>` : ''}
+    <div style="margin-top:8px;">${action}</div>
+  </div>`;
+}
+
+async function signPending(hash) {
+  try {
+    const r = await sendToSW('wallet.multisigSign', { hash });
+    if (r?.broadcast) toast('✓ Порог достигнут — транзакция отправлена в сеть', 'success');
+    else toast('✓ Подпись добавлена', 'success');
+  } catch (e) {
+    const m = e.message || String(e);
+    if (/already signed|409/i.test(m))      toast('Вы уже подписали эту транзакцию', 'error');
+    else if (/not authorized|403/i.test(m)) toast('Вы не авторизованы подписывать эту транзакцию', 'error');
+    else                                    toast('Ошибка подписи: ' + m, 'error');
+  }
+  loadMsPending();
+  loadPendingSignCount();
+}
+
 function openAccountsScreen() {
   showScreen('screen-accounts');
   const k = document.getElementById('import-key-form');  if (k) k.style.display = 'none';
@@ -3277,10 +3368,12 @@ async function switchAccount(id) {
     state.address = address;
     state.balanceSun = 0;
     state.multisigInfo = { isMultisig: false, owner: null, actives: [] };
+    state.pendingSignCount = 0;
     showScreen('screen-wallet');
     showWalletTab('assets');
     loadBalance();
     loadMultisigStatus();
+    loadPendingSignCount();
     setTimeout(loadTokenBalances, 600);
     const a = state.accounts.find(x => x.id === id);
     toast(`Аккаунт: ${a?.name || ''}`, 'success');
@@ -3403,6 +3496,7 @@ function bindTabEvents(tab) {
     on('tab-copy-addr',      copyAddress);
     on('account-switcher',   openAccountsScreen);
     on('ms-badge',           openMultisigScreen);
+    on('pending-sign-banner', openMultisigScreen);
     // Обновляем балансы токенов при каждом открытии вкладки
     if (state.orc20Tokens.length > 0) setTimeout(loadTokenBalances, 500);
     // Клик по строке токена → открыть экран отправки
@@ -3508,6 +3602,10 @@ function renderAssetsTab() {
       </div>`;
 
   return `
+    <div id="pending-sign-banner" style="display:${state.pendingSignCount ? 'flex' : 'none'};align-items:center;justify-content:space-between;gap:8px;margin:0 0 12px;padding:10px 12px;background:rgba(124,77,255,.12);color:#7c4dff;border:1px solid rgba(124,77,255,.3);border-radius:10px;cursor:pointer;font-size:12px;font-weight:700;">
+      <span id="pending-sign-text">🔐 Ждут вашей подписи: ${state.pendingSignCount}</span>
+      <span>→</span>
+    </div>
     <div class="balance-hero">
       <div class="account-switcher" id="account-switcher" style="display:inline-flex;align-items:center;gap:6px;margin:0 auto 10px;padding:5px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">
         <div class="address-avatar" style="width:18px;height:18px;border-radius:50%;"></div>
@@ -4146,24 +4244,39 @@ async function sendTransaction() {
   if (btn) { btn.disabled = true; btn.textContent = 'Отправка...'; }
 
   try {
-    // Один вызов — создание + подпись + broadcast внутри SW
-    const result = await sendToSW('wallet.sendOrgon', {
-      to,
-      amount: amountSun,
-      from: state.address?.base58,
-    });
+    if (state.multisigInfo?.isMultisig) {
+      // Мультиподписной аккаунт: создаём pending-транзакцию и сразу ставим свою подпись
+      const created = await sendToSW('wallet.multisigCreateTransfer', { to, amount: amountSun });
+      const hash = created?.hash;
+      let note = '';
+      if (hash) {
+        try { await sendToSW('wallet.multisigSign', { hash }); note = ' Ваша подпись добавлена.'; }
+        catch (_) { /* инициатор может быть не в списке подписантов — не критично */ }
+      }
+      toast(`✓ Создана мультиподписная транзакция (порог ${created?.threshold ?? '?'}).${note}`, 'success');
+      document.getElementById('send-to').value = '';
+      document.getElementById('send-amount').value = '';
+      setTimeout(() => openMultisigScreen(), 1200);
+    } else {
+      // Обычный аккаунт — создание + подпись + broadcast внутри SW
+      const result = await sendToSW('wallet.sendOrgon', {
+        to,
+        amount: amountSun,
+        from: state.address?.base58,
+      });
 
-    toast('✓ Отправлено! TX: ' + (result.txid ?? result.transaction_id ?? '').slice(0, 12) + '...', 'success');
-    document.getElementById('send-to').value = '';
-    document.getElementById('send-amount').value = '';
+      toast('✓ Отправлено! TX: ' + (result.txid ?? result.transaction_id ?? '').slice(0, 12) + '...', 'success');
+      document.getElementById('send-to').value = '';
+      document.getElementById('send-amount').value = '';
 
-    setTimeout(async () => {
-      showScreen('screen-wallet');
-      await loadSavedTokens();
-      showWalletTab('assets');
-      loadBalance();
-      setTimeout(loadTxHistory, 3000); // история обновится через 3с после broadcast
-    }, 1500);
+      setTimeout(async () => {
+        showScreen('screen-wallet');
+        await loadSavedTokens();
+        showWalletTab('assets');
+        loadBalance();
+        setTimeout(loadTxHistory, 3000); // история обновится через 3с после broadcast
+      }, 1500);
+    }
 
   } catch (e) {
     toast(e.message || 'Ошибка отправки', 'error');
@@ -4730,6 +4843,10 @@ function openSendToken(token) {
 async function sendToken() {
   const token  = state.currentToken;
   if (!token) return;
+  if (state.multisigInfo?.isMultisig) {
+    toast('Мультиподписная отправка токенов появится позже. Пока доступны переводы ORGON.', 'error');
+    return;
+  }
 
   const to     = document.getElementById('send-token-to')?.value?.trim();
   const amount = parseFloat(document.getElementById('send-token-amount')?.value);
