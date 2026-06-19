@@ -4843,10 +4843,6 @@ function openSendToken(token) {
 async function sendToken() {
   const token  = state.currentToken;
   if (!token) return;
-  if (state.multisigInfo?.isMultisig) {
-    toast('Мультиподписная отправка токенов появится позже. Пока доступны переводы ORGON.', 'error');
-    return;
-  }
 
   const to     = document.getElementById('send-token-to')?.value?.trim();
   const amount = parseFloat(document.getElementById('send-token-amount')?.value);
@@ -4862,26 +4858,45 @@ async function sendToken() {
   if (btn) { btn.disabled = true; btn.textContent = 'Отправка...'; }
 
   try {
-    const result = await sendToSW('orc20.transfer', {
-      contractAddress: token.contract,
-      to,
-      amount: rawAmount,
-    });
-    toast('✓ Отправлено ' + amount + ' ' + token.symbol, 'success');
+    if (state.multisigInfo?.isMultisig) {
+      // Мультиподписной аккаунт: создаём pending-транзакцию токена и ставим свою подпись
+      const created = await sendToSW('wallet.multisigCreateTokenTransfer', {
+        contractAddress: token.contract,
+        to,
+        amount: rawAmount,
+      });
+      const hash = created?.hash;
+      let note = '';
+      if (hash) {
+        try { await sendToSW('wallet.multisigSign', { hash }); note = ' Ваша подпись добавлена.'; }
+        catch (_) { /* инициатор может быть не в списке подписантов */ }
+      }
+      toast(`✓ Создана мультиподписная транзакция ${token.symbol} (порог ${created?.threshold ?? '?'}).${note}`, 'success');
+      document.getElementById('send-token-to').value     = '';
+      document.getElementById('send-token-amount').value = '';
+      setTimeout(() => openMultisigScreen(), 1200);
+    } else {
+      const result = await sendToSW('orc20.transfer', {
+        contractAddress: token.contract,
+        to,
+        amount: rawAmount,
+      });
+      toast('✓ Отправлено ' + amount + ' ' + token.symbol, 'success');
 
-    // Обновляем баланс
-    token.balanceFloat = (token.balanceFloat ?? 0) - amount;
-    document.getElementById('send-token-balance-display').textContent =
-      token.balanceFloat.toFixed(6) + ' ' + token.symbol;
-    document.getElementById('send-token-to').value     = '';
-    document.getElementById('send-token-amount').value = '';
+      // Обновляем баланс
+      token.balanceFloat = (token.balanceFloat ?? 0) - amount;
+      document.getElementById('send-token-balance-display').textContent =
+        token.balanceFloat.toFixed(6) + ' ' + token.symbol;
+      document.getElementById('send-token-to').value     = '';
+      document.getElementById('send-token-amount').value = '';
 
-    setTimeout(async () => {
-      showScreen('screen-wallet');
-      await loadSavedTokens();
-      showWalletTab('assets');
-      loadBalance();
-    }, 1500);
+      setTimeout(async () => {
+        showScreen('screen-wallet');
+        await loadSavedTokens();
+        showWalletTab('assets');
+        loadBalance();
+      }, 1500);
+    }
 
   } catch (e) {
     toast(e.message || 'Ошибка отправки', 'error');
