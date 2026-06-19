@@ -2309,6 +2309,7 @@ const state = {
   contactPickTarget: null,
   contactReturnScreen: null,
   editingContactId: null,
+  multisigInfo: { isMultisig: false, owner: null, actives: [] },
   balanceSun: 0,
   tokens: [],
   txHistory: [],
@@ -2734,6 +2735,7 @@ async function init() {
       try { const nf = await chrome.storage.local.get('orgonlink_notify'); state.notifyEnabled = nf.orgonlink_notify !== false; } catch {}
       showWalletTab('assets');
       loadBalance();
+      loadMultisigStatus();
       // Обновляем балансы токенов через 1 сек
       setTimeout(loadTokenBalances, 1000);
       // Автообновление баланса каждые 10 секунд пока popup открыт
@@ -3053,27 +3055,76 @@ const MS_TX_TYPES = [
   { label: 'Вывод наград',             ids: [13, 56], def: false },
 ];
 
+function signerLabel(addr) {
+  if (addr && addr === state.address?.base58) return 'Вы';
+  const c = (state.contacts || []).find(x => x.address === addr);
+  return c ? c.name : null;
+}
+
+function opsHexToIds(hex) {
+  const ids = []; const clean = String(hex || '').replace(/^0x/, '');
+  for (let i = 0; i < Math.floor(clean.length / 2); i++) {
+    const byte = parseInt(clean.substr(i * 2, 2), 16) || 0;
+    for (let b = 0; b < 8; b++) if (byte & (1 << b)) ids.push(i * 8 + b);
+  }
+  return ids;
+}
+
+function opsLabels(hex) {
+  const set = new Set(opsHexToIds(hex));
+  return MS_TX_TYPES.filter(t => t.ids.every(id => set.has(id))).map(t => t.label);
+}
+
+function renderSignerRows(keys) {
+  return (keys || []).map(k => {
+    const name  = signerLabel(k.address);
+    const a     = String(k.address || '');
+    const short = a.slice(0, 8) + '…' + a.slice(-6);
+    return `<div class="flex justify-between flex-center" style="margin-top:6px;">
+      <div style="min-width:0;">
+        ${name ? `<div class="fs12 fw600">${escapeHtml(name)}</div>` : ''}
+        <div class="mono fs11 muted truncate">${short}</div>
+      </div>
+      <span class="fs11 muted" style="flex-shrink:0;">вес ${k.weight}</span>
+    </div>`;
+  }).join('');
+}
+
+// Загружает статус мультиподписи активного аккаунта и обновляет индикатор в шапке.
+async function loadMultisigStatus() {
+  try { state.multisigInfo = await sendToSW('wallet.getAccountPermissions'); }
+  catch { state.multisigInfo = { isMultisig: false, owner: null, actives: [] }; }
+  const badge = document.getElementById('ms-badge');
+  if (badge) badge.style.display = state.multisigInfo?.isMultisig ? 'inline-flex' : 'none';
+}
+
 async function openMultisigScreen() {
   showScreen('screen-multisig');
   const statusEl = document.getElementById('ms-status');
   const editor   = document.getElementById('ms-editor');
   statusEl.innerHTML = '<div class="fs12 muted">Загрузка…</div>';
   editor.style.display = 'none';
+  await loadContacts();
 
   let info;
   try { info = await sendToSW('wallet.getAccountPermissions'); }
   catch (e) { statusEl.innerHTML = `<div class="fs12" style="color:#e5484d;">Ошибка: ${escapeHtml(e.message || String(e))}</div>`; return; }
+  state.multisigInfo = info;
 
   if (info.isMultisig) {
     const o = info.owner || {};
-    const rows = (o.keys || []).map(k =>
-      `<div class="flex justify-between fs12" style="margin-top:2px;"><span class="mono truncate">${escapeHtml(String(k.address || ''))}</span><span class="muted">вес ${k.weight}</span></div>`
-    ).join('');
+    const totalW = (o.keys || []).reduce((s, k) => s + (Number(k.weight) || 0), 0);
+    const act = (info.actives && info.actives[0]) || null;
+    const actLabels = act ? opsLabels(act.operations) : [];
     statusEl.innerHTML =
-      `<div class="fw600 fs13 mb6">✅ Аккаунт мультиподписной</div>
-       <div class="fs12 muted mb8">Owner: порог ${o.threshold}, ключей ${(o.keys || []).length}</div>
-       ${rows}
-       <div class="fs11 muted" style="margin-top:8px;line-height:1.5;">Изменение прав мультиподписного аккаунта требует сбора подписей — появится в Фазе B.</div>`;
+      `<div class="flex flex-center gap8 mb8"><span style="font-size:16px;">🔐</span><span class="fw600 fs14">Мультиподписной аккаунт</span></div>
+       <div class="label mb4">Owner — порог ${o.threshold} из ${totalW}</div>
+       ${renderSignerRows(o.keys)}
+       ${act ? `<div class="divider" style="margin:12px 0;"></div>
+                <div class="label mb4">Active — порог ${act.threshold}</div>
+                <div class="fs11 muted mb4">Разрешённые операции:</div>
+                <div class="fs12">${actLabels.length ? actLabels.map(l => '• ' + escapeHtml(l)).join('<br>') : '<span class="muted">(не распознаны)</span>'}</div>` : ''}
+       <div class="fs11 muted" style="margin-top:12px;line-height:1.5;">Изменение прав и отправка с мультиподписного аккаунта требуют сбора подписей — появится в Фазе B.</div>`;
     return;
   }
 
@@ -3225,9 +3276,11 @@ async function switchAccount(id) {
     state.activeAccountId = id;
     state.address = address;
     state.balanceSun = 0;
+    state.multisigInfo = { isMultisig: false, owner: null, actives: [] };
     showScreen('screen-wallet');
     showWalletTab('assets');
     loadBalance();
+    loadMultisigStatus();
     setTimeout(loadTokenBalances, 600);
     const a = state.accounts.find(x => x.id === id);
     toast(`Аккаунт: ${a?.name || ''}`, 'success');
@@ -3349,6 +3402,7 @@ function bindTabEvents(tab) {
   if (tab === 'assets') {
     on('tab-copy-addr',      copyAddress);
     on('account-switcher',   openAccountsScreen);
+    on('ms-badge',           openMultisigScreen);
     // Обновляем балансы токенов при каждом открытии вкладки
     if (state.orc20Tokens.length > 0) setTimeout(loadTokenBalances, 500);
     // Клик по строке токена → открыть экран отправки
@@ -3461,6 +3515,7 @@ function renderAssetsTab() {
         <span class="muted" style="font-weight:400;">· ${acctCount}</span>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
+      <div id="ms-badge" style="display:${state.multisigInfo?.isMultisig ? 'inline-flex' : 'none'};align-items:center;gap:4px;margin:0 auto 8px;padding:3px 11px;background:rgba(124,77,255,.12);color:#7c4dff;border-radius:999px;font-size:11px;font-weight:700;cursor:pointer;">🔐 Мультисиг</div>
       <div class="balance-amount" id="balance-display">${state.isLoading ? '...' : orgon}</div>
       <div class="balance-usd">≈ $${usd} USD</div>
       <div class="balance-change up" style="margin: 8px auto 12px; display:inline-flex;">
