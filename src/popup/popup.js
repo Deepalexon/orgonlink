@@ -2534,6 +2534,9 @@ function bindEvents() {
   document.querySelectorAll('#screen-multisig .back-btn').forEach(btn =>
     btn.addEventListener('click', () => showScreen('screen-wallet'))
   );
+  document.querySelectorAll('#screen-language .back-btn').forEach(btn =>
+    btn.addEventListener('click', () => { showScreen('screen-wallet'); showWalletTab('settings'); })
+  );
   on('btn-ms-add-signer', 'click', addMsSigner);
   on('btn-ms-create',     'click', createMultisig);
   on('ms-threshold',      'input', updateMsThresholdHint);
@@ -3537,6 +3540,7 @@ function bindTabEvents(tab) {
   if (tab === 'settings') {
     on('tab-btn-copy-settings',  copyAddress);
     on('tab-row-network',        showNetworkSelector);
+    on('tab-row-language',       openLanguageScreen);
     document.querySelectorAll('.theme-opt').forEach(b =>
       b.addEventListener('click', () => setTheme(b.dataset.theme)));
     on('tab-row-notify',         toggleNotifications);
@@ -3824,10 +3828,28 @@ function initTheme() {
   }
 }
 
+function openLanguageScreen() {
+  showScreen('screen-language');
+  const box = document.getElementById('language-list');
+  if (!box || !window.I18N) return;
+  const cur = I18N.getLang();
+  box.innerHTML = I18N.LANGS.map(l => `
+    <div class="network-option ${l.code === cur ? 'selected' : ''}" data-lang="${l.code}" style="cursor:pointer;">
+      <div class="network-option-info">
+        <div class="network-option-name">${escapeHtml(l.name)}</div>
+      </div>
+      <div class="net-check">✓</div>
+    </div>`).join('');
+  box.querySelectorAll('[data-lang]').forEach(el =>
+    el.addEventListener('click', () => I18N.setLang(el.dataset.lang)));
+}
+
 function renderSettingsTab() {
   const addr = state.address?.base58 || '—';
   const net = NETWORKS[state.network]?.name || 'Mainnet';
   const theme = getTheme();
+  const curLang = (window.I18N ? I18N.getLang() : 'ru');
+  const curLangName = ((window.I18N && I18N.LANGS.find(l => l.code === curLang)) || {}).name || 'Русский';
 
   return `
     <div style="padding:16px 16px 8px;">
@@ -3845,6 +3867,17 @@ function renderSettingsTab() {
         <button class="btn theme-opt ${theme === 'dark' ? 'btn-primary' : 'btn-secondary'}" data-theme="dark" style="flex:1;height:36px;font-size:12px;">🌙 Тёмная</button>
         <button class="btn theme-opt ${theme === 'system' ? 'btn-primary' : 'btn-secondary'}" data-theme="system" style="flex:1;height:36px;font-size:12px;">🖥 Авто</button>
       </div>
+    </div>
+
+    <div class="settings-row" id="tab-row-language">
+      <div class="settings-row-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      </div>
+      <div class="settings-row-text">
+        <div class="settings-row-title">Язык / Language</div>
+        <div class="settings-row-sub">${curLangName}</div>
+      </div>
+      <div class="settings-row-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
     </div>
 
     <div class="settings-row" id="tab-row-network">
