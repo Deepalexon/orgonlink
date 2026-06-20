@@ -2396,9 +2396,9 @@ function goBack() {
 //  TOAST
 // ═══════════════════════════════════════════════════
 let toastTimer;
-function toast(msg, type = '') {
+function toast(msg, type = '', vars = null) {
   const el = document.getElementById('toast');
-  el.textContent = msg;
+  el.textContent = (window.t ? window.t(msg, vars) : msg);
   el.className = type ? `show ${type}` : 'show';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
@@ -2991,7 +2991,7 @@ function renderContactsList() {
       state.contactPickTarget = null;
       state.contactReturnScreen = null;
       showScreen(back);
-      toast(`Получатель: ${c.name}`, 'success');
+      toast('Получатель: {name}', 'success', {name: c.name});
     } else {
       navigator.clipboard?.writeText(c.address).catch(() => {});
       toast('Адрес скопирован', 'success');
@@ -3039,7 +3039,7 @@ async function saveContact() {
 
 async function deleteContact(id) {
   const c = state.contacts.find(x => x.id === id);
-  if (!window.confirm(`Удалить контакт «${c?.name || ''}»?`)) return;
+  if (!window.confirm(window.t('Удалить контакт «{name}»?', {name: c?.name || ''}))) return;
   state.contacts = state.contacts.filter(x => x.id !== id);
   await saveContacts();
   renderContactsList();
@@ -3091,7 +3091,7 @@ function renderSignerRows(keys) {
         ${name ? `<div class="fs12 fw600">${escapeHtml(name)}</div>` : ''}
         <div class="mono fs11 muted truncate">${short}</div>
       </div>
-      <span class="fs11 muted" style="flex-shrink:0;">вес ${k.weight}</span>
+      <span class="fs11 muted" style="flex-shrink:0;">${window.t('вес {w}',{w:k.weight})}</span>
     </div>`;
   }).join('');
 }
@@ -3142,13 +3142,13 @@ async function openMultisigScreen() {
     const actLabels = act ? opsLabels(act.operations) : [];
     statusEl.innerHTML =
       `<div class="flex flex-center gap8 mb8"><span style="font-size:16px;">🔐</span><span class="fw600 fs14">Мультиподписной аккаунт</span></div>
-       <div class="label mb4">Owner — порог ${o.threshold} из ${totalW}</div>
+       <div class="label mb4">${window.t('Owner — порог {a} из {b}',{a:o.threshold,b:totalW})}</div>
        ${renderSignerRows(o.keys)}
        ${act ? `<div class="divider" style="margin:12px 0;"></div>
-                <div class="label mb4">Active — порог ${act.threshold}</div>
+                <div class="label mb4">${window.t('Active — порог {a}',{a:act.threshold})}</div>
                 <div class="fs11 muted mb4">Разрешённые операции:</div>
-                <div class="fs12">${actLabels.length ? actLabels.map(l => '• ' + escapeHtml(l)).join('<br>') : '<span class="muted">(не распознаны)</span>'}</div>` : ''}
-       <div class="fs11 muted" style="margin-top:12px;line-height:1.5;">Отправка с этого аккаунта создаёт транзакцию, которую подписывают несколько сторон (порог ${o.threshold} из ${totalW} по весу).</div>`;
+                <div class="fs12">${actLabels.length ? actLabels.map(l => '• ' + escapeHtml(window.t(l))).join('<br>') : '<span class="muted">(не распознаны)</span>'}</div>` : ''}
+       <div class="fs11 muted" style="margin-top:12px;line-height:1.5;">${window.t('Отправка с этого аккаунта создаёт транзакцию, которую подписывают несколько сторон (порог {a} из {b} по весу).',{a:o.threshold,b:totalW})}</div>`;
     loadMsPending();
     return;
   }
@@ -3195,7 +3195,7 @@ function renderMsOps() {
   box.innerHTML = MS_TX_TYPES.map((t, i) => `
     <label class="flex gap8 mb6" style="align-items:center;cursor:pointer;">
       <input type="checkbox" class="ms-op" data-i="${i}" ${t.def ? 'checked' : ''}>
-      <span class="fs13">${t.label}</span>
+      <span class="fs13">${window.t ? window.t(t.label) : t.label}</span>
     </label>`).join('');
 }
 
@@ -3217,15 +3217,12 @@ async function createMultisig() {
   if (signers.some(s => !s.address.startsWith('o') || s.address.length < 30)) { toast('Проверьте адреса подписантов', 'error'); return; }
   if (new Set(signers.map(s => s.address)).size !== signers.length) { toast('Адреса подписантов повторяются', 'error'); return; }
   const total = signers.reduce((a, s) => a + s.weight, 0);
-  if (threshold < 1 || threshold > total) { toast(`Порог должен быть от 1 до ${total}`, 'error'); return; }
+  if (threshold < 1 || threshold > total) { toast('Порог должен быть от 1 до {n}', 'error', {n: total}); return; }
   if (!opIds.length) { toast('Выберите хотя бы один тип транзакций', 'error'); return; }
   const selfAddr = state.address?.base58;
   if (!signers.some(s => s.address === selfAddr)) { toast('Ваш адрес должен быть среди подписантов', 'error'); return; }
 
-  const summary =
-    `Перевести аккаунт в мультиподпись?\n\n` +
-    `Подписантов: ${signers.length}\nПорог: ${threshold} из ${total}\n\n` +
-    `ЭТО НЕОБРАТИМО. Убедитесь, что у вас есть доступ к ключам всех подписантов.`;
+  const summary = window.t('Перевести аккаунт в мультиподпись?\n\nПодписантов: {n}\nПорог: {t} из {total}\n\nЭТО НЕОБРАТИМО. Убедитесь, что у вас есть доступ к ключам всех подписантов.', {n: signers.length, t: threshold, total});
   if (!window.confirm(summary)) return;
 
   const btn = document.getElementById('btn-ms-create');
@@ -3235,7 +3232,7 @@ async function createMultisig() {
     toast('✓ Мультиподпись настроена', 'success');
     setTimeout(openMultisigScreen, 1500);
   } catch (e) {
-    toast('Ошибка: ' + (e.message || e), 'error');
+    toast('Ошибка: {msg}', 'error', {msg: e.message || e});
   } finally {
     btn.disabled = false; btn.textContent = 'Создать мультиподпись';
   }
@@ -3254,7 +3251,7 @@ async function loadMsPending() {
   }
   const pend = (list || []).filter(t => String(t.status || 'pending') === 'pending');
   let html = '<div class="divider" style="margin:14px 0;"></div>' +
-             `<div class="flex justify-between flex-center mb8"><span class="label">Ожидающие подписи (${pend.length})</span>` +
+             `<div class="flex justify-between flex-center mb8"><span class="label">${window.t('Ожидающие подписи ({n})',{n:pend.length})}</span>` +
              `<span class="send-max fs11" id="ms-pending-refresh">Обновить</span></div>`;
   html += pend.length ? pend.map(renderPendingRow).join('')
                       : '<div class="fs12 muted">Нет ожидающих транзакций.</div>';
@@ -3302,7 +3299,8 @@ async function signPending(hash) {
     const m = e.message || String(e);
     if (/already signed|409/i.test(m))      toast('Вы уже подписали эту транзакцию', 'error');
     else if (/not authorized|403/i.test(m)) toast('Вы не авторизованы подписывать эту транзакцию', 'error');
-    else                                    toast('Ошибка подписи: ' + m, 'error');
+    else if (/failed to add|not found|expired|истек|истёк/i.test(m)) toast('Транзакция недоступна для подписи (возможно, истекла или уже завершена)', 'error');
+    else                                    toast('Ошибка подписи: {msg}', 'error', {msg: m});
   }
   loadMsPending();
   loadPendingSignCount();
@@ -3380,7 +3378,7 @@ async function switchAccount(id) {
     loadPendingSignCount();
     setTimeout(loadTokenBalances, 600);
     const a = state.accounts.find(x => x.id === id);
-    toast(`Аккаунт: ${a?.name || ''}`, 'success');
+    toast('Аккаунт: {name}', 'success', {name: a?.name || ''});
   } catch (e) {
     toast(e.message || 'Ошибка переключения', 'error');
   }
@@ -3388,7 +3386,7 @@ async function switchAccount(id) {
 
 async function renameAccountUI(id) {
   const a = state.accounts.find(x => x.id === id);
-  const name = window.prompt('Новое имя аккаунта:', a?.name || '');
+  const name = window.prompt(window.t('Новое имя аккаунта:'), a?.name || '');
   if (name == null || !name.trim()) return;
   try {
     await sendToSW('wallet.renameAccount', { id, name: name.trim() });
@@ -3401,7 +3399,7 @@ async function renameAccountUI(id) {
 
 async function removeAccountUI(id) {
   const a = state.accounts.find(x => x.id === id);
-  if (!window.confirm(`Удалить аккаунт «${a?.name || ''}»?\nУбедитесь, что сохранён его приватный ключ / seed — восстановить будет нельзя.`)) return;
+  if (!window.confirm(window.t('Удалить аккаунт «{name}»?\nУбедитесь, что сохранён его приватный ключ / seed — восстановить будет нельзя.', {name: a?.name || ''}))) return;
   try {
     const res = await sendToSW('wallet.removeAccount', { id });
     await loadAccounts();
@@ -3421,7 +3419,7 @@ async function addHdAccount() {
     const acc = await sendToSW('wallet.addAccount', {});
     await loadAccounts();
     renderAccountsScreen();
-    toast(`Создан: ${acc?.name || 'аккаунт'}`, 'success');
+    toast('Создан: {name}', 'success', {name: acc?.name || window.t('аккаунт')});
   } catch (e) {
     toast(e.message || 'Ошибка создания', 'error');
   } finally {
@@ -3454,7 +3452,7 @@ async function doImportKey() {
     document.getElementById('import-key-form').style.display = 'none';
     await loadAccounts();
     renderAccountsScreen();
-    toast(`Импортирован: ${acc?.name || ''}`, 'success');
+    toast('Импортирован: {name}', 'success', {name: acc?.name || ''});
   } catch (e) {
     toast(e.message || 'Ошибка импорта', 'error');
   } finally {
@@ -3475,7 +3473,7 @@ async function doImportSeed() {
     document.getElementById('import-seed-form').style.display = 'none';
     await loadAccounts();
     renderAccountsScreen();
-    toast(`Кошелёк добавлен: ${acc?.name || ''}`, 'success');
+    toast('Кошелёк добавлен: {name}', 'success', {name: acc?.name || ''});
   } catch (e) {
     toast(e.message || 'Ошибка импорта', 'error');
   } finally {
@@ -3550,7 +3548,7 @@ function bindTabEvents(tab) {
     on('tab-row-staking',     () => openStaking());
     on('tab-row-voting',      () => openVoting());
     on('tab-row-export-seed', () => openExportSeed());
-    on('tab-row-about',          () => toast('OrgonLink v' + chrome.runtime.getManifest().version));
+    on('tab-row-about',          () => toast('OrgonLink v{v}', '', {v: chrome.runtime.getManifest().version}));
     on('tab-btn-reset',          resetWallet);
     // tab-btn-explorer привязывается в showTxDetail напрямую
   }
@@ -4326,10 +4324,10 @@ async function sendTransaction() {
       const hash = created?.hash;
       let note = '';
       if (hash) {
-        try { await sendToSW('wallet.multisigSign', { hash }); note = ' Ваша подпись добавлена.'; }
+        try { await sendToSW('wallet.multisigSign', { hash }); note = window.t(' Ваша подпись добавлена.'); }
         catch (_) { /* инициатор может быть не в списке подписантов — не критично */ }
       }
-      toast(`✓ Создана мультиподписная транзакция (порог ${created?.threshold ?? '?'}).${note}`, 'success');
+      toast('✓ Создана мультиподписная транзакция (порог {a}).{note}', 'success', {a: created?.threshold ?? '?', note});
       document.getElementById('send-to').value = '';
       document.getElementById('send-amount').value = '';
       setTimeout(() => openMultisigScreen(), 1200);
@@ -4341,7 +4339,7 @@ async function sendTransaction() {
         from: state.address?.base58,
       });
 
-      toast('✓ Отправлено! TX: ' + (result.txid ?? result.transaction_id ?? '').slice(0, 12) + '...', 'success');
+      toast('✓ Отправлено! TX: {tx}', 'success', {tx: (result.txid ?? result.transaction_id ?? '').slice(0, 12) + '...'});
       document.getElementById('send-to').value = '';
       document.getElementById('send-amount').value = '';
 
@@ -4656,7 +4654,7 @@ function openVoteInput(addr) {
   if (input === null) return;
   const count = parseInt(input);
   if (isNaN(count) || count <= 0) { delete state.myVotes[addr]; }
-  else if (count > tpAvail)       { toast(`Максимум ${tpAvail} TP`, 'error'); return; }
+  else if (count > tpAvail)       { toast('Максимум {n} TP', 'error', {n: tpAvail}); return; }
   else                             { state.myVotes[addr] = count; }
 
   renderMyVotes();
@@ -4694,7 +4692,7 @@ async function submitVotes() {
 
   try {
     await sendToSW('wallet.voteWitness', { votes });
-    toast(`✓ Проголосовано за ${votes.length} валидаторов!`, 'success');
+    toast('✓ Проголосовано за {n} валидаторов!', 'success', {n: votes.length});
 
     // Голоса зафиксированы — сбрасываем черновик и скрываем кнопку
     state.myVotes = {};
@@ -4866,7 +4864,7 @@ async function fetchTokenInfo() {
       rawBalance: String(Math.round(balanceFloat * Math.pow(10, info.decimals))) };
 
   } catch (e) {
-    toast('Ошибка: ' + e.message, 'error');
+    toast('Ошибка: {msg}', 'error', {msg: e.message});
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -4891,7 +4889,7 @@ async function confirmAddToken() {
 
   state.orc20Tokens.push(token);
   await saveTokens();
-  toast(`✓ Токен ${token.symbol} добавлен!`, 'success');
+  toast('✓ Токен {sym} добавлен!', 'success', {sym: token.symbol});
   state._pendingToken = null;
   showScreen('screen-wallet');
   showWalletTab('assets');
@@ -4944,10 +4942,10 @@ async function sendToken() {
       const hash = created?.hash;
       let note = '';
       if (hash) {
-        try { await sendToSW('wallet.multisigSign', { hash }); note = ' Ваша подпись добавлена.'; }
+        try { await sendToSW('wallet.multisigSign', { hash }); note = window.t(' Ваша подпись добавлена.'); }
         catch (_) { /* инициатор может быть не в списке подписантов */ }
       }
-      toast(`✓ Создана мультиподписная транзакция ${token.symbol} (порог ${created?.threshold ?? '?'}).${note}`, 'success');
+      toast('✓ Создана мультиподписная транзакция {sym} (порог {a}).{note}', 'success', {sym: token.symbol, a: created?.threshold ?? '?', note});
       document.getElementById('send-token-to').value     = '';
       document.getElementById('send-token-amount').value = '';
       setTimeout(() => openMultisigScreen(), 1200);
@@ -4957,7 +4955,7 @@ async function sendToken() {
         to,
         amount: rawAmount,
       });
-      toast('✓ Отправлено ' + amount + ' ' + token.symbol, 'success');
+      toast('✓ Отправлено {n} {sym}', 'success', {n: amount, sym: token.symbol});
 
       // Обновляем баланс
       token.balanceFloat = (token.balanceFloat ?? 0) - amount;
@@ -5061,7 +5059,7 @@ async function doFreeze() {
       amount:   Math.round(amountOrgon * 1e6),
       resource: state.stakingResource,
     });
-    toast(`✓ Заморожено ${amountOrgon} ORGON для ${state.stakingResource}`, 'success');
+    toast('✓ Заморожено {n} ORGON для {res}', 'success', {n: amountOrgon, res: state.stakingResource});
     document.getElementById('stk-freeze-amount').value = '';
     await loadBalance();
     await loadResources();
@@ -5078,7 +5076,7 @@ async function doUnfreeze() {
 
   const r = state.resources;
   const max = r ? (state.unStakingResource === 'ENERGY' ? r.frozenEnergyOrgon : r.frozenBandwidthOrgon) : 0;
-  if (amountOrgon > max) { toast(`Максимум ${max.toFixed(2)} ORGON`, 'error'); return; }
+  if (amountOrgon > max) { toast('Максимум {n} ORGON', 'error', {n: max.toFixed(2)}); return; }
 
   const btn = document.getElementById('btn-do-unfreeze');
   if (btn) { btn.disabled = true; btn.textContent = 'Разморозка...'; }
@@ -5088,7 +5086,7 @@ async function doUnfreeze() {
       amount:   Math.round(amountOrgon * 1e6),
       resource: state.unStakingResource,
     });
-    toast(`✓ Разморозка ${amountOrgon} ORGON начата. Средства придут через 14 дней.`, 'success');
+    toast('✓ Разморозка {n} ORGON начата. Средства придут через 14 дней.', 'success', {n: amountOrgon});
     document.getElementById('stk-unfreeze-amount').value = '';
     await loadResources();
     await loadWithdrawable();
@@ -5204,10 +5202,10 @@ async function doDelegate() {
         lock: !!state.delegateLock,
         lockPeriod: state.delegateLock ? 86400 : undefined, // ~3 дня (3с/блок ≈ 86400 блоков)
       });
-      toast(`✓ Делегировано ${amountOrgon} ORGON (${resource})`, 'success');
+      toast('✓ Делегировано {n} ORGON ({res})', 'success', {n: amountOrgon, res: resource});
     } else {
       await sendToSW('wallet.undelegateResource', { receiver, amount, resource });
-      toast(`✓ Отозвано ${amountOrgon} ORGON (${resource})`, 'success');
+      toast('✓ Отозвано {n} ORGON ({res})', 'success', {n: amountOrgon, res: resource});
     }
     document.getElementById('dlg-amount').value = '';
     await loadResources();
@@ -5409,7 +5407,7 @@ async function approveTx() {
     window.close();
   } catch (e) {
     console.error('[Approval] error:', e.message);
-    toast('Ошибка подтверждения: ' + e.message, 'error');
+    toast('Ошибка подтверждения: {msg}', 'error', {msg: e.message});
     if (btn) { btn.disabled = false; btn.textContent = 'Подтвердить'; }
   }
 }
@@ -5449,7 +5447,7 @@ async function switchNetwork(net) {
   document.querySelectorAll('.network-option').forEach(el => el.classList.remove('selected'));
   document.getElementById(`net-${net}`)?.classList.add('selected');
 
-  toast(`Сеть: ${name}`, 'success');
+  toast('Сеть: {name}', 'success', {name});
   if (netFromScreen) showScreen(netFromScreen);
 }
 
@@ -5457,7 +5455,7 @@ async function switchNetwork(net) {
 //  UTILS
 // ═══════════════════════════════════════════════════
 async function resetWallet() {
-  if (!confirm('Сбросить кошелёк? Убедитесь что seed-фраза сохранена!')) return;
+  if (!confirm(window.t('Сбросить кошелёк? Убедитесь что seed-фраза сохранена!'))) return;
   chrome.storage.local.remove(['orgonlink_vault', 'orgonlink_permissions'], () => {
     state.address = null;
     state.balanceSun = 0;
