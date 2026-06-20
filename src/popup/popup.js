@@ -2701,6 +2701,7 @@ function bindEvents() {
 }
 
 async function init() {
+  initTheme();
   bindEvents();
   // Проверяем URL params — это approval popup?
   const params = new URLSearchParams(window.location.search);
@@ -3536,6 +3537,8 @@ function bindTabEvents(tab) {
   if (tab === 'settings') {
     on('tab-btn-copy-settings',  copyAddress);
     on('tab-row-network',        showNetworkSelector);
+    document.querySelectorAll('.theme-opt').forEach(b =>
+      b.addEventListener('click', () => setTheme(b.dataset.theme)));
     on('tab-row-notify',         toggleNotifications);
     on('tab-row-contacts',       () => openContactsScreen());
     on('tab-row-multisig',       openMultisigScreen);
@@ -3791,9 +3794,40 @@ function renderDappsTab() {
 }
 
 // ─── Settings tab ─────────────────────────────────
+// ═══════════════════════════════════════════════════
+//  ТЕМА ОФОРМЛЕНИЯ (светлая / тёмная / авто)
+// ═══════════════════════════════════════════════════
+function getTheme() {
+  try { return localStorage.getItem('orgonlink_theme') || 'light'; } catch { return 'light'; }
+}
+function resolveTheme(pref) {
+  if (pref === 'system') {
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return pref === 'dark' ? 'dark' : 'light';
+}
+function applyTheme(pref) {
+  document.documentElement.setAttribute('data-theme', resolveTheme(pref));
+}
+function setTheme(pref) {
+  try { localStorage.setItem('orgonlink_theme', pref); } catch {}
+  applyTheme(pref);
+  showWalletTab('settings'); // перерисовать активную кнопку
+}
+let _themeMql = null;
+function initTheme() {
+  applyTheme(getTheme());
+  if (!_themeMql && window.matchMedia) {
+    _themeMql = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => { if (getTheme() === 'system') applyTheme('system'); };
+    _themeMql.addEventListener ? _themeMql.addEventListener('change', onChange) : _themeMql.addListener(onChange);
+  }
+}
+
 function renderSettingsTab() {
   const addr = state.address?.base58 || '—';
   const net = NETWORKS[state.network]?.name || 'Mainnet';
+  const theme = getTheme();
 
   return `
     <div style="padding:16px 16px 8px;">
@@ -3801,6 +3835,15 @@ function renderSettingsTab() {
         <div class="label mb6">Адрес кошелька</div>
         <div class="mono fs11 muted" style="word-break:break-all;line-height:1.6;">${addr}</div>
         <button class="btn-ghost" style="height:28px;font-size:11px;padding:0 10px;margin-top:8px;" id="tab-btn-copy-settings">Скопировать</button>
+      </div>
+    </div>
+
+    <div style="padding:0 16px 8px;">
+      <div class="label mb8">Тема оформления</div>
+      <div class="flex gap8">
+        <button class="btn theme-opt ${theme === 'light' ? 'btn-primary' : 'btn-secondary'}" data-theme="light" style="flex:1;height:36px;font-size:12px;">☀️ Светлая</button>
+        <button class="btn theme-opt ${theme === 'dark' ? 'btn-primary' : 'btn-secondary'}" data-theme="dark" style="flex:1;height:36px;font-size:12px;">🌙 Тёмная</button>
+        <button class="btn theme-opt ${theme === 'system' ? 'btn-primary' : 'btn-secondary'}" data-theme="system" style="flex:1;height:36px;font-size:12px;">🖥 Авто</button>
       </div>
     </div>
 

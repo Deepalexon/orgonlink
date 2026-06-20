@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "OrgonLink",
-  "version": "0.13.0",
-  "version_name": "0.13.0",
+  "version": "0.14.0",
+  "version_name": "0.14.0",
   "description": "OrgonLink — несохранный кошелёк для блокчейна Orgon: переводы, oRC-20, стейкинг, делегирование и подключение к dApp.",
   "permissions": [
     "storage",

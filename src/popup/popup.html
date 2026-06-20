@@ -30,6 +30,26 @@
     --shadow:    0 4px 20px rgba(0,0,0,.10);
   }
 
+  :root[data-theme="dark"] {
+    --bg:        #0e1014;
+    --bg2:       #161a21;
+    --bg3:       #1e232c;
+    --bg4:       #2a303b;
+    --accent:    #4d8bff;
+    --accent2:   #3b74e6;
+    --accent-dim:#16233d;
+    --red:       #ff6b6b;
+    --red-dim:   #3a1f22;
+    --amber:     #ffa94d;
+    --amber-dim: #3a2e1a;
+    --text:      #e9ecf2;
+    --text2:     #a3aab8;
+    --text3:     #6b7280;
+    --border:    #262c37;
+    --border2:   #353c49;
+    --shadow:    0 6px 24px rgba(0,0,0,.5);
+  }
+
   html, body {
     width: 380px;
     height: 600px;
@@ -130,14 +150,14 @@
   /* ── Inputs ── */
   .input-group { display: flex; flex-direction: column; gap: 6px; }
   .input-label { font-size: 12px; color: var(--text2); font-weight: 600; letter-spacing: .03em; }
-  input[type=text], input[type=password], textarea {
+  input[type=text], input[type=password], input[type=number], textarea {
     background: var(--bg3); border: 1px solid var(--border2);
     color: var(--text); border-radius: var(--radius-sm);
     font-family: 'Consolas', 'SF Mono', 'Fira Code', 'Courier New', monospace; font-size: 13px;
     padding: 11px 14px; outline: none; width: 100%;
     transition: border-color .15s;
   }
-  input[type=text]:focus, input[type=password]:focus, textarea:focus {
+  input[type=text]:focus, input[type=password]:focus, input[type=number]:focus, textarea:focus {
     border-color: var(--accent);
   }
   input::placeholder, textarea::placeholder { color: var(--text3); }
@@ -495,6 +515,7 @@
   .net-check svg { width: 16px; height: 16px; }
 
 </style>
+<script src="theme-init.js"></script>
 </head>
 <body>
 <div id="app">
