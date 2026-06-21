@@ -4303,6 +4303,7 @@ function sendMax() {
 async function sendTransaction() {
   const to   = document.getElementById('send-to')?.value?.trim();
   const amountStr = document.getElementById('send-amount')?.value?.trim();
+  const memo = document.getElementById('send-memo')?.value?.trim() || '';
 
   if (!to)         { toast('Введите адрес получателя', 'error'); return; }
   if (!to.startsWith('o')) { toast('Неверный адрес (должен начинаться с "o")', 'error'); return; }
@@ -4337,11 +4338,13 @@ async function sendTransaction() {
         to,
         amount: amountSun,
         from: state.address?.base58,
+        memo,
       });
 
       toast('✓ Отправлено! TX: {tx}', 'success', {tx: (result.txid ?? result.transaction_id ?? '').slice(0, 12) + '...'});
       document.getElementById('send-to').value = '';
       document.getElementById('send-amount').value = '';
+      const sm = document.getElementById('send-memo'); if (sm) sm.value = '';
 
       setTimeout(async () => {
         showScreen('screen-wallet');
@@ -4909,6 +4912,7 @@ function openSendToken(token) {
   document.getElementById('send-token-suffix').textContent = token.symbol;
   document.getElementById('send-token-to').value     = '';
   document.getElementById('send-token-amount').value = '';
+  const stm = document.getElementById('send-token-memo'); if (stm) stm.value = '';
 
   showScreen('screen-send-token');
   renderAssetPicker('sendtok-asset-picker', 'tok:' + token.contract);
@@ -4920,6 +4924,7 @@ async function sendToken() {
 
   const to     = document.getElementById('send-token-to')?.value?.trim();
   const amount = parseFloat(document.getElementById('send-token-amount')?.value);
+  const memo   = document.getElementById('send-token-memo')?.value?.trim() || '';
 
   if (!to)            { toast('Введите адрес получателя', 'error'); return; }
   if (!to.startsWith('o')) { toast('Неверный адрес Orgon', 'error'); return; }
@@ -4938,6 +4943,7 @@ async function sendToken() {
         contractAddress: token.contract,
         to,
         amount: rawAmount,
+        memo,
       });
       const hash = created?.hash;
       let note = '';
@@ -4948,12 +4954,14 @@ async function sendToken() {
       toast('✓ Создана мультиподписная транзакция {sym} (порог {a}).{note}', 'success', {sym: token.symbol, a: created?.threshold ?? '?', note});
       document.getElementById('send-token-to').value     = '';
       document.getElementById('send-token-amount').value = '';
+      document.getElementById('send-token-memo').value   = '';
       setTimeout(() => openMultisigScreen(), 1200);
     } else {
       const result = await sendToSW('orc20.transfer', {
         contractAddress: token.contract,
         to,
         amount: rawAmount,
+        memo,
       });
       toast('✓ Отправлено {n} {sym}', 'success', {n: amount, sym: token.symbol});
 
@@ -4963,6 +4971,7 @@ async function sendToken() {
         token.balanceFloat.toFixed(6) + ' ' + token.symbol;
       document.getElementById('send-token-to').value     = '';
       document.getElementById('send-token-amount').value = '';
+      document.getElementById('send-token-memo').value   = '';
 
       setTimeout(async () => {
         showScreen('screen-wallet');
