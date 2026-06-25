@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OrgonLink · dApp test bench</title>
+<style>
+  :root{
+    --bg:#0a0d18; --panel:#121728; --panel2:#0e1322; --line:#232b45;
+    --text:#e7eaf3; --muted:#8a93ad; --faint:#5b6480;
+    --accent:#ff2d8f; --accent2:#7c5cff;
+    --ok:#2ecc8f; --err:#ff5a6e; --warn:#ffb02e; --pending:#5aa9ff;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --r:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5}
+  a{color:var(--accent)}
+  code,.mono{font-family:var(--mono)}
+  ::selection{background:var(--accent);color:#fff}
+
+  /* ── Top bar ───────────────────────────── */
+  header{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;
+    padding:14px 22px;background:rgba(10,13,24,.92);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:11px;font-weight:600;letter-spacing:.2px}
+  .glyph{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;
+    background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-weight:700;
+    font-family:var(--mono);font-size:18px}
+  .brand small{display:block;color:var(--muted);font-weight:400;font-size:11px;letter-spacing:.3px}
+  .wire{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--err);flex:none;
+    box-shadow:0 0 0 0 currentColor;color:var(--err)}
+  .dot.on{background:var(--ok);color:var(--ok);animation:pulse 2.2s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 currentColor}70%{box-shadow:0 0 0 7px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .wire .stat{color:var(--muted);font-family:var(--mono);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wire .stat b{color:var(--text)}
+  header button{font-family:var(--sans)}
+
+  /* ── Layout ────────────────────────────── */
+  .wrap{display:grid;grid-template-columns:330px 1fr;gap:20px;max-width:1280px;margin:0 auto;padding:20px 22px 80px}
+  @media(max-width:900px){.wrap{grid-template-columns:1fr}}
+  aside{position:sticky;top:74px;align-self:start;display:flex;flex-direction:column;gap:14px;max-height:calc(100vh - 94px)}
+  @media(max-width:900px){aside{position:static;max-height:none}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r)}
+  .card>.hd{padding:11px 15px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .hd h2,.hd h3{margin:0;font-size:13px;font-weight:600;letter-spacing:.2px}
+  .hd .sub{color:var(--muted);font-size:11px;font-family:var(--mono)}
+  .bd{padding:14px 15px}
+
+  /* status panel */
+  .kv{display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px dashed #1c2440;font-family:var(--mono);font-size:12px}
+  .kv:last-child{border-bottom:none}
+  .kv .k{color:var(--muted)}
+  .kv .v{color:var(--text);text-align:right;word-break:break-all;max-width:200px}
+  .v.good{color:var(--ok)} .v.bad{color:var(--err)} .v.warnc{color:var(--warn)}
+
+  /* event log */
+  .log{font-family:var(--mono);font-size:11.5px;background:var(--panel2);border-radius:8px;
+    padding:10px;height:230px;overflow:auto;display:flex;flex-direction:column;gap:3px}
+  .log .row{display:flex;gap:8px;align-items:baseline}
+  .log .t{color:var(--faint);flex:none}
+  .log .ev{font-weight:600}
+  .log .connect,.log .unlocked{color:var(--ok)}
+  .log .disconnect,.log .locked{color:var(--err)}
+  .log .accountsChanged{color:var(--warn)}
+  .log .networkChanged{color:var(--accent2)}
+  .log .sys{color:var(--muted)}
+  .log .msg{color:var(--muted);word-break:break-all}
+
+  /* method groups */
+  main{display:flex;flex-direction:column;gap:18px;min-width:0}
+  .group>.ghd{display:flex;align-items:center;gap:10px;margin:4px 2px 10px}
+  .ghd .bar{width:3px;height:16px;border-radius:2px;background:var(--accent)}
+  .ghd h2{margin:0;font-size:14px;font-weight:600}
+  .ghd .count{color:var(--muted);font-size:11px;font-family:var(--mono)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+
+  .m{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden}
+  .m .top{padding:11px 13px 9px;display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+  .m .name{font-family:var(--mono);font-size:12.5px;color:var(--text);font-weight:600}
+  .m .desc{color:var(--muted);font-size:11.5px;margin-top:2px}
+  .pill{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:20px;border:1px solid var(--line);color:var(--muted);flex:none;white-space:nowrap}
+  .pill.popup{color:var(--warn);border-color:#3a2f12}
+  .pill.read{color:var(--pending);border-color:#1c3050}
+  .pill.local{color:var(--accent2);border-color:#2a2354}
+
+  .fields{padding:0 13px 11px;display:flex;flex-direction:column;gap:7px}
+  .field label{display:block;color:var(--muted);font-size:10.5px;font-family:var(--mono);margin-bottom:3px}
+  .field input,.field textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    border-radius:7px;padding:7px 9px;font-family:var(--mono);font-size:12px;resize:vertical}
+  .field input:focus,.field textarea:focus{outline:none;border-color:var(--accent2)}
+  .field textarea{min-height:54px}
+
+  .actions{padding:9px 13px;border-top:1px solid var(--line);display:flex;align-items:center;gap:8px;background:var(--panel2)}
+  button{cursor:pointer;border:none;border-radius:7px;padding:7px 13px;font-size:12px;font-weight:600;
+    background:var(--accent);color:#fff;transition:filter .15s,opacity .15s}
+  button:hover{filter:brightness(1.1)} button:active{filter:brightness(.95)}
+  button:disabled{opacity:.45;cursor:not-allowed;filter:none}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}
+  button.ghost:hover{color:var(--text);filter:none;border-color:var(--accent2)}
+  button.small{padding:4px 9px;font-size:11px}
+  .status{font-family:var(--mono);font-size:11px;margin-left:auto;display:flex;align-items:center;gap:6px;color:var(--muted)}
+  .led{width:7px;height:7px;border-radius:50%;background:var(--line)}
+  .led.ok{background:var(--ok)} .led.err{background:var(--err)} .led.pending{background:var(--pending);animation:blink .8s infinite}
+  @keyframes blink{50%{opacity:.3}}
+
+  .out{margin:0;font-family:var(--mono);font-size:11.5px;background:#080b14;border-top:1px solid var(--line);
+    padding:11px 13px;max-height:280px;overflow:auto;white-space:pre-wrap;word-break:break-word;color:#cdd4e6;display:none}
+  .out.show{display:block}
+  .out .ok{color:var(--ok)} .out .err{color:var(--err)}
+
+  .banner{margin:0 0 18px;padding:13px 16px;border-radius:var(--r);font-size:13px;display:none}
+  .banner.show{display:block}
+  .banner.warn{background:#241a08;border:1px solid #4a3712;color:#ffcd78}
+  .banner code{background:#0006;padding:1px 5px;border-radius:4px}
+
+  .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:4px}
+  .toolbar .sep{flex:1}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="glyph">o</div>
+    <div>OrgonLink <small>dApp test bench · provider API</small></div>
+  </div>
+  <div class="wire">
+    <span class="dot" id="dot"></span>
+    <span class="stat" id="wireStat">Поиск провайдера…</span>
+  </div>
+  <button class="ghost small" id="refreshBtn">Обновить статус</button>
+</header>
+
+<div class="wrap">
+  <!-- LEFT RAIL -->
+  <aside>
+    <div class="card">
+      <div class="hd"><h2>Состояние провайдера</h2><span class="sub" id="verTag">—</span></div>
+      <div class="bd" id="statusKV">
+        <div class="kv"><span class="k">window.tron</span><span class="v" id="kv-tron">—</span></div>
+        <div class="kv"><span class="k">window.orgonWeb</span><span class="v" id="kv-ow">—</span></div>
+        <div class="kv"><span class="k">isOrgonLink</span><span class="v" id="kv-is">—</span></div>
+        <div class="kv"><span class="k">ready</span><span class="v" id="kv-ready">—</span></div>
+        <div class="kv"><span class="k">defaultAddress</span><span class="v" id="kv-addr">—</span></div>
+      </div>
+    </div>
+
+    <div class="card" style="flex:1;min-height:0;display:flex;flex-direction:column">
+      <div class="hd">
+        <h3>Лог событий</h3>
+        <button class="ghost small" id="clearLog">Очистить</button>
+      </div>
+      <div class="bd" style="flex:1;min-height:0;display:flex">
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- RIGHT -->
+  <main>
+    <div class="banner warn" id="noProvider">
+      <b>Провайдер OrgonLink не обнаружен.</b><br>
+      Проверь: расширение загружено в <code>chrome://extensions</code>; эта страница открыта по
+      <code>https://</code>, <code>http://localhost</code> или <code>file://</code> (под манифест).
+      Для <code>file://</code> включи у OrgonLink тумблер «Разрешить доступ к URL-адресам файлов».
+    </div>
+
+    <div class="toolbar">
+      <button id="sweepBtn">▶ Прогнать read-only пакет</button>
+      <button class="ghost" id="connectBtn">Подключить кошелёк</button>
+      <span class="sep"></span>
+      <span class="status mono" id="sweepStatus"></span>
+    </div>
+
+    <div id="groups"></div>
+  </main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ── helpers ───────────────────────────────────────────────
+  const $ = s => document.querySelector(s);
+  const ce = (t,c)=>{const e=document.createElement(t); if(c)e.className=c; return e;};
+  const now = ()=>new Date().toLocaleTimeString('ru-RU',{hour12:false})+"."+String(Date.now()%1000).padStart(3,'0');
+  const ow = ()=>window.orgonWeb;
+  const curAddr = ()=>{ const d=ow()&&ow().defaultAddress; return d? (d.base58||d) : null; };
+  function jstr(v){ try{return JSON.stringify(v,(k,val)=>typeof val==='bigint'?val.toString():val,2);}catch{ return String(v);} }
+
+  // ── event log ─────────────────────────────────────────────
+  const logEl = $('#log');
+  function log(ev, msg, cls){
+    const row=ce('div','row');
+    row.innerHTML=`<span class="t">${now()}</span><span class="ev ${cls||ev}">${ev}</span>`;
+    if(msg!==undefined){const m=ce('span','msg'); m.textContent=typeof msg==='string'?msg:jstr(msg); row.appendChild(m);}
+    logEl.appendChild(row); logEl.scrollTop=logEl.scrollHeight;
+    while(logEl.children.length>300) logEl.removeChild(logEl.firstChild);
+  }
+  $('#clearLog').onclick=()=>logEl.innerHTML='';
+
+  // ── status panel ──────────────────────────────────────────
+  function setKV(id,val,kind){const e=$('#'+id); e.textContent=val; e.className='v'+(kind?(' '+kind):'');}
+  function refreshStatus(){
+    const hasTron = typeof window.tron!=='undefined';
+    const o = ow();
+    setKV('kv-tron', hasTron?'present':'absent', hasTron?'good':'bad');
+    setKV('kv-ow', o?'present':'absent', o?'good':'bad');
+    setKV('kv-is', o?String(!!o.isOrgonLink):'—', o&&o.isOrgonLink?'good':'');
+    setKV('kv-ready', o?String(!!o.ready):'—', o?(o.ready?'good':'warnc'):'');
+    const a=curAddr(); setKV('kv-addr', a||'(не подключён)', a?'good':'warnc');
+    $('#verTag').textContent = o&&o.version ? 'v'+o.version : '—';
+    const dot=$('#dot'), stat=$('#wireStat');
+    if(o){ dot.classList.add('on');
+      stat.innerHTML = o.ready
+        ? `Подключён · <b>${a||'?'}</b>`
+        : `Провайдер найден · <b>кошелёк заблокирован / не подключён</b>`;
+    } else { dot.classList.remove('on'); stat.textContent='Провайдер не обнаружен'; }
+    $('#noProvider').classList.toggle('show', !o);
+  }
+  $('#refreshBtn').onclick=refreshStatus;
+
+  // ── shared tx buffer (для chain: build → sign → broadcast) ─
+  const buf = { unsigned:null, signed:null };
+
+  // ── registry of every provider method ─────────────────────
+  // kind: 'read' (no popup), 'popup' (подтверждение в расширении), 'local' (без расширения)
+  const F = (id,group,name,desc,kind,fields,run)=>({id,group,name,desc,kind,fields:fields||[],run});
+
+  const REG = [
+    // ── Provider / connection ──
+    F('detect','Провайдер','snapshot()','Срез состояния провайдера (локально)','local',[],
+      async()=>({hasWindowTron:typeof window.tron!=='undefined', isOrgonLink: ow()?.isOrgonLink,
+                 version: ow()?.version, ready: ow()?.ready, defaultAddress: ow()?.defaultAddress})),
+    F('reqAccounts','Провайдер','tron.request(tron_requestAccounts)','EIP-1193-стиль запрос подключения','popup',[],
+      async()=> await window.tron.request({method:'tron_requestAccounts'})),
+    F('requestAccess','Провайдер','orgonWeb.requestAccess()','Прямой запрос доступа к кошельку','popup',[],
+      async()=> await ow().requestAccess()),
+
+    // ── Chain reads ──
+    F('getCurrentBlock','Чтение сети','trx.getCurrentBlock()','Текущий блок','read',[],
+      async()=> await ow().trx.getCurrentBlock()),
+    F('getBlockByNumber','Чтение сети','trx.getBlockByNumber(num)','Блок по номеру','read',
+      [{n:'num',l:'num',ph:'1',v:'1'}],
+      async p=> await ow().trx.getBlockByNumber(Number(p.num))),
+    F('getBalance','Чтение сети','trx.getBalance(address)','Баланс ORGON (SUN)','read',
+      [{n:'address',l:'address (пусто = текущий)',ph:'o...'}],
+      async p=> await ow().trx.getBalance(p.address||curAddr())),
+    F('getAccount','Чтение сети','trx.getAccount(address)','Данные аккаунта','read',
+      [{n:'address',l:'address (пусто = текущий)',ph:'o...'}],
+      async p=> await ow().trx.getAccount(p.address||curAddr())),
+    F('getTransactions','Чтение сети','trx.getTransactions(address,limit)','История транзакций','read',
+      [{n:'address',l:'address (пусто = текущий)',ph:'o...'},{n:'limit',l:'limit',ph:'20',v:'20'}],
+      async p=> await ow().trx.getTransactions(p.address||curAddr(), Number(p.limit)||20)),
+    F('getTransaction','Чтение сети','trx.getTransaction(txid)','Транзакция по id','read',
+      [{n:'txid',l:'txid',ph:'hex txid'}],
+      async p=> await ow().trx.getTransaction(p.txid)),
+    F('getTxInfo','Чтение сети','trx.getTransactionInfo(txid)','Receipt / результат исполнения','read',
+      [{n:'txid',l:'txid',ph:'hex txid'}],
+      async p=> await ow().trx.getTransactionInfo(p.txid)),
+    F('rpcCall','Чтение сети','fullNode(method,params)','Прямой RPC к Full Node (rpcCall). Путь без ведущего слэша','read',
+      [{n:'method',l:'method (без ведущего «/»)',ph:'wallet/getnowblock',v:'wallet/getnowblock'},
+       {n:'params',l:'params (JSON)',ta:1,ph:'{}',v:'{}'}],
+      async p=> await ow().fullNode(p.method.replace(/^\/+/,''), JSON.parse(p.params||'{}'))),
+
+    // ── transactionBuilder ──
+    F('sendTrx','Сборка tx','transactionBuilder.sendTrx(to,amount)','Собрать перевод ORGON → unsigned tx','read',
+      [{n:'to',l:'to (base58)',ph:'o...'},{n:'amount',l:'amount (SUN, 1 ORGON = 1 000 000)',ph:'1000000',v:'1000000'}],
+      async p=>{ const tx=await ow().transactionBuilder.sendTrx(p.to, Number(p.amount)); buf.unsigned=tx; return tx;}),
+    F('sendToken','Сборка tx','transactionBuilder.sendToken(to,amount,tokenId)','Перевод oRC-10 токена → unsigned tx','read',
+      [{n:'to',l:'to (base58)',ph:'o...'},{n:'amount',l:'amount',ph:'1'},{n:'tokenId',l:'tokenId',ph:'1000001'}],
+      async p=>{ const tx=await ow().transactionBuilder.sendToken(p.to, Number(p.amount), p.tokenId); buf.unsigned=tx; return tx;}),
+    F('triggerConst','Сборка tx','triggerConstantContract(...)','Read-only вызов контракта (view/pure)','read',
+      [{n:'addr',l:'contractAddress',ph:'o...'},{n:'sel',l:'functionSelector',ph:'balanceOf(address)'},
+       {n:'params',l:'parameters (JSON)',ta:1,ph:'[]',v:'[]'}],
+      async p=> await ow().transactionBuilder.triggerConstantContract(p.addr,p.sel,{},JSON.parse(p.params||'[]'))),
+    F('triggerSmart','Сборка tx','triggerSmartContract(...)','Write-вызов → unsigned tx','read',
+      [{n:'addr',l:'contractAddress',ph:'o...'},{n:'sel',l:'functionSelector',ph:'transfer(address,uint256)'},
+       {n:'params',l:'parameters (JSON)',ta:1,ph:'[]',v:'[]'},{n:'feeLimit',l:'feeLimit',ph:'150000000',v:'150000000'}],
+      async p=>{ const r=await ow().transactionBuilder.triggerSmartContract(p.addr,p.sel,{feeLimit:Number(p.feeLimit)},JSON.parse(p.params||'[]'));
+                 if(r&&r.transaction) buf.unsigned=r.transaction; return r;}),
+    F('estimateEnergy','Сборка tx','estimateEnergy(...)','Оценка energy вызова','read',
+      [{n:'addr',l:'contractAddress',ph:'o...'},{n:'sel',l:'functionSelector',ph:'transfer(address,uint256)'},
+       {n:'params',l:'parameters (JSON)',ta:1,ph:'[]',v:'[]'}],
+      async p=> await ow().transactionBuilder.estimateEnergy(p.addr,p.sel,{},JSON.parse(p.params||'[]'))),
+    F('createContract','Сборка tx','createSmartContract(options)','Деплой контракта → unsigned tx','read',
+      [{n:'options',l:'options (JSON)',ta:1,ph:'{"abi":[],"bytecode":"..."}',v:'{}'}],
+      async p=>{ const r=await ow().transactionBuilder.createSmartContract(JSON.parse(p.options||'{}')); buf.unsigned=r; return r;}),
+
+    // ── Signing & broadcast ──
+    F('signTx','Подпись','trx.sign(tx)','Подписать tx (попап). Пусто = из буфера','popup',
+      [{n:'tx',l:'transaction JSON (пусто = последняя собранная)',ta:1,ph:'{ ... } или пусто'}],
+      async p=>{ const tx=p.tx?JSON.parse(p.tx):buf.unsigned;
+                 if(!tx) throw new Error('Нет tx: сначала собери (sendTrx/triggerSmartContract) или вставь JSON');
+                 const s=await ow().trx.sign(tx); buf.signed=s; return s;}),
+    F('signMsg','Подпись','signMessageV2(message)','Подпись сообщения TIP-191 (попап)','popup',
+      [{n:'message',l:'message',ph:'Hello Orgon',v:'Hello Orgon'}],
+      async p=> await ow().signMessageV2(p.message)),
+    F('verifyMsg','Подпись','verifyMessageV2(message,signature)','Восстановить адрес подписанта','read',
+      [{n:'message',l:'message',ph:'Hello Orgon'},{n:'signature',l:'signature (hex)',ph:'0x...'}],
+      async p=> await ow().verifyMessageV2(p.message,p.signature)),
+    F('verifyMsgAddr','Подпись','verifyMessage(message,signature,address)','Проверка подписи против адреса','read',
+      [{n:'message',l:'message',ph:'Hello Orgon'},{n:'signature',l:'signature (hex)',ph:'0x...'},{n:'address',l:'address',ph:'o...'}],
+      async p=> await ow().verifyMessage(p.message,p.signature,p.address)),
+    F('broadcast','Подпись','trx.sendRawTransaction(signed)','Отправить подписанную tx. Пусто = из буфера','popup',
+      [{n:'signed',l:'signed tx JSON (пусто = последняя подписанная)',ta:1,ph:'{ ... } или пусто'}],
+      async p=>{ const s=p.signed?JSON.parse(p.signed):buf.signed;
+                 if(!s) throw new Error('Нет подписанной tx: сначала подпиши или вставь JSON');
+                 return await ow().trx.sendRawTransaction(s);}),
+
+    // ── Contract factory ──
+    F('contractCall','Контракт','contract(abi,addr).m(...).call()','Read-метод контракта через фабрику','read',
+      [{n:'abi',l:'ABI (JSON)',ta:1,ph:'[{"name":"balanceOf","type":"function","inputs":[{"type":"address"}]}]',v:'[]'},
+       {n:'address',l:'address',ph:'o...'},{n:'method',l:'method',ph:'balanceOf'},
+       {n:'args',l:'args (JSON array)',ta:1,ph:'["o..."]',v:'[]'}],
+      async p=>{ const c=ow().contract(JSON.parse(p.abi||'[]'),p.address);
+                 if(typeof c[p.method]!=='function') throw new Error('Метод '+p.method+' не найден в ABI');
+                 return await c[p.method](...JSON.parse(p.args||'[]')).call();}),
+    F('contractSend','Контракт','contract(abi,addr).m(...).send()','Write-метод контракта (попап)','popup',
+      [{n:'abi',l:'ABI (JSON)',ta:1,ph:'[...]',v:'[]'},{n:'address',l:'address',ph:'o...'},
+       {n:'method',l:'method',ph:'transfer'},{n:'args',l:'args (JSON array)',ta:1,ph:'["o...",100]',v:'[]'},
+       {n:'feeLimit',l:'feeLimit',ph:'150000000',v:'150000000'}],
+      async p=>{ const c=ow().contract(JSON.parse(p.abi||'[]'),p.address);
+                 if(typeof c[p.method]!=='function') throw new Error('Метод '+p.method+' не найден в ABI');
+                 return await c[p.method](...JSON.parse(p.args||'[]')).send({feeLimit:Number(p.feeLimit)});}),
+
+    // ── End-to-end ──
+    F('e2e','Сценарий','build → sign → broadcast','Полный путь перевода ORGON одной кнопкой','popup',
+      [{n:'to',l:'to (base58)',ph:'o...'},{n:'amount',l:'amount (SUN)',ph:'1000000',v:'1000000'}],
+      async (p,emit)=>{
+        emit('1/3 transactionBuilder.sendTrx …');
+        const tx=await ow().transactionBuilder.sendTrx(p.to,Number(p.amount)); buf.unsigned=tx;
+        emit('2/3 trx.sign (подтверди в попапе) …');
+        const signed=await ow().trx.sign(tx); buf.signed=signed;
+        emit('3/3 trx.sendRawTransaction …');
+        const res=await ow().trx.sendRawTransaction(signed);
+        return {step1_unsigned:tx, step2_signed:signed, step3_broadcast:res};
+      }),
+
+    // ── Utils (без расширения) ──
+    F('fromSun','Утилиты','utils.fromSun(sun)','SUN → ORGON','local',
+      [{n:'sun',l:'sun',ph:'1000000',v:'1000000'}],
+      async p=> (ow()?.utils?.fromSun? ow().utils.fromSun(p.sun) : Number(p.sun)/1e6)),
+    F('toSun','Утилиты','utils.toSun(orgon)','ORGON → SUN','local',
+      [{n:'orgon',l:'orgon',ph:'1',v:'1'}],
+      async p=> (ow()?.utils?.toSun? ow().utils.toSun(p.orgon) : Math.round(Number(p.orgon)*1e6))),
+    F('isAddress','Утилиты','utils.isAddress(addr)','Проверка формата адреса','local',
+      [{n:'addr',l:'addr',ph:'o...'}],
+      async p=> ow()?.utils?.isAddress(p.addr)),
+    F('hexToBytes','Утилиты','utils.hexToBytes(hex)','hex → Uint8Array','local',
+      [{n:'hex',l:'hex',ph:'0x48656c6c6f',v:'0x48656c6c6f'}],
+      async p=> Array.from(ow().utils.hexToBytes(p.hex))),
+    F('bytesToHex','Утилиты','utils.bytesToHex(bytes)','bytes(JSON массив) → hex','local',
+      [{n:'bytes',l:'bytes (JSON array)',ph:'[72,101,108,108,111]',v:'[72,101,108,108,111]'}],
+      async p=> ow().utils.bytesToHex(new Uint8Array(JSON.parse(p.bytes||'[]')))),
+  ];
+
+  // ── render ────────────────────────────────────────────────
+  const KIND_LABEL = {read:'read', popup:'попап', local:'локально'};
+  const groupsEl = $('#groups');
+  const order = [];
+  REG.forEach(m=>{ if(!order.includes(m.group)) order.push(m.group); });
+
+  order.forEach(g=>{
+    const items = REG.filter(m=>m.group===g);
+    const gel=ce('div','group');
+    const ghd=ce('div','ghd');
+    ghd.innerHTML=`<span class="bar"></span><h2>${g}</h2><span class="count">${items.length}</span>`;
+    gel.appendChild(ghd);
+    const grid=ce('div','grid');
+    items.forEach(m=>grid.appendChild(renderCard(m)));
+    gel.appendChild(grid);
+    groupsEl.appendChild(gel);
+  });
+
+  function renderCard(m){
+    const el=ce('div','m'); el.dataset.id=m.id;
+    const top=ce('div','top');
+    top.innerHTML=`<div><div class="name">${m.name}</div><div class="desc">${m.desc}</div></div>
+      <span class="pill ${m.kind}">${KIND_LABEL[m.kind]}</span>`;
+    el.appendChild(top);
+
+    const fwrap=ce('div','fields');
+    m.fields.forEach(f=>{
+      const fl=ce('div','field');
+      const inp = f.ta ? `<textarea data-f="${f.n}" placeholder="${(f.ph||'').replace(/"/g,'&quot;')}">${f.v||''}</textarea>`
+                       : `<input data-f="${f.n}" value="${f.v||''}" placeholder="${(f.ph||'').replace(/"/g,'&quot;')}">`;
+      fl.innerHTML=`<label>${f.l}</label>${inp}`;
+      fwrap.appendChild(fl);
+    });
+    if(m.fields.length) el.appendChild(fwrap);
+
+    const act=ce('div','actions');
+    const btn=ce('button'); btn.textContent='Run'; btn.className='small';
+    const st=ce('span','status'); st.innerHTML=`<span class="led"></span><span class="txt">—</span>`;
+    act.appendChild(btn); act.appendChild(st); el.appendChild(act);
+
+    const out=ce('pre','out'); el.appendChild(out);
+
+    btn.onclick=()=>execCard(m,el,btn,st,out);
+    return el;
+  }
+
+  function readFields(el){
+    const p={};
+    el.querySelectorAll('[data-f]').forEach(i=>p[i.dataset.f]=i.value.trim());
+    return p;
+  }
+  function setLed(st,cls,txt){
+    st.querySelector('.led').className='led '+(cls||'');
+    st.querySelector('.txt').textContent=txt;
+  }
+
+  async function execCard(m,el,btn,st,out){
+    if(m.kind!=='local' && !ow()){ refreshStatus(); flashOut(out,true,'Провайдер не обнаружен — расширение не активно на этой странице'); return; }
+    btn.disabled=true; setLed(st,'pending','…');
+    out.classList.add('show'); out.innerHTML='<span style="color:#5aa9ff">running…</span>';
+    const t0=performance.now();
+    const emit = msg=>{ out.innerHTML=`<span style="color:#5aa9ff">${msg}</span>`; log(m.id, msg, 'sys'); };
+    try{
+      const res = await m.run(readFields(el), emit);
+      const dt=(performance.now()-t0).toFixed(0);
+      setLed(st,'ok',dt+' ms');
+      flashOut(out,false,jstr(res));
+      log(m.id, 'ok '+dt+'ms', 'sys');
+    }catch(e){
+      const dt=(performance.now()-t0).toFixed(0);
+      setLed(st,'err',dt+' ms');
+      const detail = e&&e.code!==undefined ? `[${e.code}] ${e.message}` : (e&&e.message?e.message:String(e));
+      flashOut(out,true,detail);
+      log(m.id, 'err '+detail, 'sys');
+    }finally{
+      btn.disabled=false;
+      refreshStatus();
+    }
+  }
+  function flashOut(out,isErr,text){
+    out.classList.add('show');
+    out.innerHTML=`<span class="${isErr?'err':'ok'}">${isErr?'✗ ERROR':'✓ OK'}</span>\n`+escapeHtml(text);
+  }
+  function escapeHtml(s){return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+  // ── top toolbar actions ───────────────────────────────────
+  $('#connectBtn').onclick=async()=>{
+    if(!ow()){refreshStatus();return;}
+    try{ const r=await window.tron.request({method:'tron_requestAccounts'}); log('connect', r,'sys'); }
+    catch(e){ log('connect', 'err '+(e.message||e),'sys'); }
+    refreshStatus();
+  };
+
+  $('#sweepBtn').onclick=async()=>{
+    if(!ow()){refreshStatus();return;}
+    const ss=$('#sweepStatus'); const ids=['detect','getCurrentBlock','getBlockByNumber','getBalance','getAccount','getTransactions','rpcCall'];
+    let ok=0,err=0;
+    ss.textContent='прогон…';
+    for(const id of ids){
+      const m=REG.find(x=>x.id===id);
+      const el=document.querySelector(`.m[data-id="${id}"]`);
+      const btn=el.querySelector('button'), st=el.querySelector('.status'), out=el.querySelector('.out');
+      await execCard(m,el,btn,st,out);
+      st.querySelector('.led').classList.contains('ok') ? ok++ : err++;
+      ss.textContent=`пройдено ${ok} · ошибок ${err}`;
+      await new Promise(r=>setTimeout(r,120));
+    }
+    ss.innerHTML=`<span style="color:${err?'var(--warn)':'var(--ok)'}">готово · ${ok} ok · ${err} err</span>`;
+    log('sweep', `read-only пакет: ${ok} ok, ${err} err`,'sys');
+  };
+
+  // ── wire provider events ──────────────────────────────────
+  function bindEvents(){
+    const o=ow(); if(!o||!o.on) return false;
+    ['connect','disconnect','accountsChanged','networkChanged'].forEach(ev=>{
+      o.on(ev,(d)=>{ log(ev, d===undefined?'':d, ev); refreshStatus(); });
+    });
+    return true;
+  }
+  // raw extension push events (на случай если on() ещё не готов)
+  window.addEventListener('OrgonLinkEvent', e=>{
+    const d=e.detail||{}; log(d.type||'event', d, d.type);
+  });
+
+  // ── boot ──────────────────────────────────────────────────
+  function boot(){
+    refreshStatus(); bindEvents();
+    if(ow()) log('provider', 'detected v'+(ow().version||'?'),'sys');
+  }
+  if(window.orgonWeb){ boot(); }
+  else {
+    log('provider','ожидание инъекции…','sys');
+    window.addEventListener('orgonWeb#initialized', boot, {once:true});
+    window.addEventListener('tron#initialized', boot, {once:true});
+    // fallback-поллинг 3с
+    let n=0; const iv=setInterval(()=>{ if(window.orgonWeb){clearInterval(iv);boot();} else if(++n>30){clearInterval(iv);refreshStatus();} },100);
+  }
+})();
+</script>
+</body>
+</html>
