@@ -2732,7 +2732,16 @@ async function init() {
     const swState = await sendToSW('__internal.getState');
     if (swState?.isUnlocked && swState?.selectedAddress) {
       state.address = swState.selectedAddress;
-      state.network = 'mainnet';
+      // Восстанавливаем выбранную сеть из storage и синхронизируем SW
+      try {
+        const nd = await chrome.storage.local.get('orgonlink_network');
+        state.network = nd.orgonlink_network === 'testnet' ? 'testnet' : 'mainnet';
+      } catch { state.network = 'mainnet'; }
+      if (state.network !== 'mainnet') {
+        try { await sendToSW('__internal.switchNetwork', { network: state.network }); } catch {}
+      }
+      const _netName = NETWORKS[state.network]?.name || 'Mainnet';
+      document.querySelectorAll('[id$="-net-name"]').forEach(el => el.textContent = _netName);
       showScreen('screen-wallet');
       // Сначала загружаем сохранённые токены из storage
       await loadSavedTokens();
@@ -4743,10 +4752,15 @@ async function claimVotingRewards() {
 // ═══════════════════════════════════════════════════
 
 // Загружаем сохранённые токены из chrome.storage
+function tokensStorageKey() {
+  return 'orgonlink_tokens_' + (state.network || 'mainnet');
+}
+
 async function loadSavedTokens() {
   try {
-    const data = await chrome.storage.local.get('orgonlink_tokens');
-    state.orc20Tokens = data.orgonlink_tokens ?? [];
+    const key = tokensStorageKey();
+    const data = await chrome.storage.local.get(key);
+    state.orc20Tokens = Array.isArray(data[key]) ? data[key] : [];
   } catch {
     state.orc20Tokens = [];
   }
@@ -4754,7 +4768,7 @@ async function loadSavedTokens() {
 
 async function saveTokens() {
   try {
-    await chrome.storage.local.set({ orgonlink_tokens: state.orc20Tokens });
+    await chrome.storage.local.set({ [tokensStorageKey()]: state.orc20Tokens });
   } catch {}
 }
 
@@ -5475,6 +5489,8 @@ async function switchNetwork(net) {
   try {
     await sendToSW('__internal.switchNetwork', { network: net });
   } catch { /* ignore */ }
+  // Запоминаем выбор сети, чтобы он пережил переоткрытие попапа
+  try { await chrome.storage.local.set({ orgonlink_network: net }); } catch {}
 
   const name = NETWORKS[net]?.name || 'Mainnet';
   document.querySelectorAll('[id$="-net-name"]').forEach(el => el.textContent = name);
@@ -5482,6 +5498,17 @@ async function switchNetwork(net) {
   // Обновляем чекмарки
   document.querySelectorAll('.network-option').forEach(el => el.classList.remove('selected'));
   document.getElementById(`net-${net}`)?.classList.add('selected');
+
+  // Сбрасываем данные прошлой сети и грузим данные новой
+  state.balanceSun = 0;
+  const bd = document.getElementById('balance-display');
+  if (bd) bd.textContent = '0.000000';
+  state._healTried = new Set();          // метаданные токенов — перечитать под новую сеть
+  await loadSavedTokens();               // список токенов новой сети (хранится по сети)
+  await loadBalance();                   // нативный баланс новой сети
+  loadTokenBalances();                   // балансы токенов + починка метаданных
+  loadTxHistory();                       // история новой сети
+  if (state.currentScreen === 'screen-wallet') showWalletTab(state.walletTab || 'assets');
 
   toast('Сеть: {name}', 'success', {name});
   if (netFromScreen) showScreen(netFromScreen);
