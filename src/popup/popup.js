@@ -4815,6 +4815,28 @@ async function loadTokenBalances() {
     }
   }
 
+  // Авто-починка метаданных: если имя/символ не подтянулись при добавлении
+  // (нода была недоступна) — перечитываем через gate сейчас и обновляем запись.
+  for (const token of state.orc20Tokens) {
+    if (token.name === 'Unknown' || token.symbol === '???' || !token.symbol) {
+      try {
+        const info = await sendToSW('orc20.getInfo', { contractAddress: token.contract });
+        if (info && info.symbol && info.symbol !== '???') {
+          token.name     = info.name || token.name;
+          token.symbol   = info.symbol;
+          token.decimals = info.decimals ?? token.decimals;
+          if (token.rawBalance != null) {
+            token.balanceFloat = Number(token.rawBalance) / Math.pow(10, token.decimals ?? 6);
+          }
+          updated = true;
+          console.log('[Token heal]', token.contract, '→', token.symbol, token.name);
+        }
+      } catch (e) {
+        console.warn('[Token heal error]', token.contract, e.message);
+      }
+    }
+  }
+
   // Сохраняем обновлённые балансы
   if (updated) {
     await saveTokens();
