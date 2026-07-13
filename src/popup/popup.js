@@ -4817,8 +4817,13 @@ async function loadTokenBalances() {
 
   // Авто-починка метаданных: если имя/символ не подтянулись при добавлении
   // (нода была недоступна) — перечитываем через gate сейчас и обновляем запись.
+  // Гард: каждый непочиненный токен пробуем не чаще одного раза за сессию попапа,
+  // чтобы «вечно-Unknown» (битый контракт) не дёргал gate на каждом обновлении.
+  state._healTried ??= new Set();
   for (const token of state.orc20Tokens) {
-    if (token.name === 'Unknown' || token.symbol === '???' || !token.symbol) {
+    const needsHeal = token.name === 'Unknown' || token.symbol === '???' || !token.symbol;
+    if (needsHeal && !state._healTried.has(token.contract)) {
+      state._healTried.add(token.contract);
       try {
         const info = await sendToSW('orc20.getInfo', { contractAddress: token.contract });
         if (info && info.symbol && info.symbol !== '???') {
