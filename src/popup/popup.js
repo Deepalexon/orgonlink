@@ -2365,7 +2365,7 @@ function getTxData(id) {
 
 const NETWORKS = {
   mainnet: { name: 'Mainnet', fullNode: 'https://tr80.orgon.space', solidityNode: 'https://tr81.orgon.space' },
-  testnet: { name: 'Quasar', fullNode: 'https://api.quasar.orgonscan.org', solidityNode: 'https://api.quasar.orgonscan.org' },
+  testnet: { name: 'Quasar', fullNode: 'https://quasargate.orgon.space', solidityNode: 'https://quasargate.orgon.space' },
 };
 
 // ═══════════════════════════════════════════════════
