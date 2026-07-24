@@ -801,6 +801,10 @@
     <div class="card-sm mb16">
       <div class="fee-row"><span class="muted">Комиссия (Bandwidth)</span><span class="mono fs12">≈ 0.1 ORGON</span></div>
       <div class="fee-row"><span class="muted">Время подтверждения</span><span class="fs12 accent">~3 сек</span></div>
+      <div class="fee-row" id="send-expire-row" style="display:none;border:none;">
+        <span class="muted">Срок на подписание</span>
+        <span><input type="number" id="send-expire-min" value="10" min="1" max="1440" style="width:56px;padding:3px 6px;text-align:right;font-size:12px;display:inline-block;"> <span class="fs12 muted">мин</span></span>
+      </div>
     </div>
 
     <button class="btn btn-primary" id="btn-send-tx">
@@ -1690,6 +1694,10 @@
     <div class="card-sm mb14" style="font-size:12px;">
       <div class="fee-row"><span class="muted">Комиссия (Energy)</span><span class="mono">≈ 10–30 Energy</span></div>
       <div class="fee-row" style="border:none;"><span class="muted">Время</span><span class="accent fs12">~3 сек</span></div>
+      <div class="fee-row" id="send-token-expire-row" style="display:none;border:none;">
+        <span class="muted">Срок на подписание</span>
+        <span><input type="number" id="send-token-expire-min" value="10" min="1" max="1440" style="width:56px;padding:3px 6px;text-align:right;font-size:12px;display:inline-block;"> <span class="fs12 muted">мин</span></span>
+      </div>
     </div>
 
     <button class="btn btn-primary" id="btn-send-token-submit">

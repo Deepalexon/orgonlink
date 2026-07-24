@@ -4240,12 +4240,42 @@ async function loadTxHistory() {
 // ═══════════════════════════════════════════════════
 //  SEND
 // ═══════════════════════════════════════════════════
+// ── Срок на подписание (только для мультиподписи) ─────────
+// Нода строит транзакцию со сроком жизни ~60 сек — этого мало, чтобы
+// остальные подписанты успели поставить подписи. Даём задать срок вручную.
+const EXPIRE_DEFAULT_MIN = 10;
+
+async function initExpireRow(rowId, inputId) {
+  const row = document.getElementById(rowId);
+  const inp = document.getElementById(inputId);
+  if (!row || !inp) return;
+  const isMs = !!state.multisigInfo?.isMultisig;
+  row.style.display = isMs ? '' : 'none';
+  if (!isMs) return;
+  let saved = EXPIRE_DEFAULT_MIN;
+  try {
+    const d = await chrome.storage.local.get('orgonlink_expire_min');
+    const v = Number(d.orgonlink_expire_min);
+    if (v >= 1 && v <= 1440) saved = Math.round(v);
+  } catch {}
+  inp.value = saved;
+}
+
+// Читает значение, приводит к допустимому диапазону и запоминает выбор.
+function readExpireMinutes(inputId) {
+  const raw = Number(document.getElementById(inputId)?.value);
+  const min = (raw >= 1 && raw <= 1440) ? Math.round(raw) : EXPIRE_DEFAULT_MIN;
+  try { chrome.storage.local.set({ orgonlink_expire_min: min }); } catch {}
+  return min;
+}
+
 function openSend() {
   showScreen('screen-send');
   const fromEl = document.getElementById('send-from-addr');
   const balEl = document.getElementById('send-balance');
   if (fromEl) fromEl.textContent = state.address?.base58 || '—';
   if (balEl) balEl.textContent = (state.balanceSun / 1_000_000).toFixed(6) + ' ORGON';
+  initExpireRow('send-expire-row', 'send-expire-min');
   renderAssetPicker('send-asset-picker', 'orgon');
 }
 
@@ -4330,7 +4360,10 @@ async function sendTransaction() {
   try {
     if (state.multisigInfo?.isMultisig) {
       // Мультиподписной аккаунт: создаём pending-транзакцию и сразу ставим свою подпись
-      const created = await sendToSW('wallet.multisigCreateTransfer', { to, amount: amountSun });
+      const created = await sendToSW('wallet.multisigCreateTransfer', {
+        to, amount: amountSun,
+        expirationMinutes: readExpireMinutes('send-expire-min'),
+      });
       const hash = created?.hash;
       let note = '';
       if (hash) {
@@ -4954,6 +4987,7 @@ function openSendToken(token) {
   document.getElementById('send-token-to').value     = '';
   document.getElementById('send-token-amount').value = '';
   const stm = document.getElementById('send-token-memo'); if (stm) stm.value = '';
+  initExpireRow('send-token-expire-row', 'send-token-expire-min');
 
   showScreen('screen-send-token');
   renderAssetPicker('sendtok-asset-picker', 'tok:' + token.contract);
@@ -4985,6 +5019,7 @@ async function sendToken() {
         to,
         amount: rawAmount,
         memo,
+        expirationMinutes: readExpireMinutes('send-token-expire-min'),
       });
       const hash = created?.hash;
       let note = '';
