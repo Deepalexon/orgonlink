@@ -75,6 +75,21 @@
   };
   for (var k in EXTRA_UI) { if (DICT[k]) { for (var kk in EXTRA_UI[k]) DICT[k][kk] = EXTRA_UI[k][kk]; } }
 
+  // Строки окна подтверждения для вызова смарт-контракта (dApp)
+  var EXTRA_DAPP = {
+    en: { "Вызов контракта": "Contract call", "Отправляется": "Sending", "Контракт": "Contract", "Прикреплено к вызову": "Attached to call" },
+    fr: { "Вызов контракта": "Appel de contrat", "Отправляется": "Envoi", "Контракт": "Contrat", "Прикреплено к вызову": "Joint à l'appel" },
+    es: { "Вызов контракта": "Llamada al contrato", "Отправляется": "Se envía", "Контракт": "Contrato", "Прикреплено к вызову": "Adjunto a la llamada" },
+    pt: { "Вызов контракта": "Chamada de contrato", "Отправляется": "Enviando", "Контракт": "Contrato", "Прикреплено к вызову": "Anexado à chamada" },
+    it: { "Вызов контракта": "Chiamata al contratto", "Отправляется": "Invio", "Контракт": "Contratto", "Прикреплено к вызову": "Allegato alla chiamata" },
+    zh: { "Вызов контракта": "合约调用", "Отправляется": "发送", "Контракт": "合约", "Прикреплено к вызову": "随调用附带" },
+    ja: { "Вызов контракта": "コントラクト呼び出し", "Отправляется": "送信額", "Контракт": "コントラクト", "Прикреплено к вызову": "呼び出しに添付" },
+    vi: { "Вызов контракта": "Gọi hợp đồng", "Отправляется": "Đang gửi", "Контракт": "Hợp đồng", "Прикреплено к вызову": "Đính kèm lệnh gọi" },
+    ko: { "Вызов контракта": "컨트랙트 호출", "Отправляется": "전송", "Контракт": "컨트랙트", "Прикреплено к вызову": "호출에 첨부" },
+    hi: { "Вызов контракта": "कॉन्ट्रैक्ट कॉल", "Отправляется": "भेजा जा रहा", "Контракт": "कॉन्ट्रैक्ट", "Прикреплено к вызову": "कॉल के साथ संलग्न" }
+  };
+  for (var k in EXTRA_DAPP) { if (DICT[k]) { for (var kk in EXTRA_DAPP[k]) DICT[k][kk] = EXTRA_DAPP[k][kk]; } }
+
   function getLang() {
     try { return localStorage.getItem('orgonlink_lang') || 'ru'; } catch (e) { return 'ru'; }
   }

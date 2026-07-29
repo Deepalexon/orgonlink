@@ -2710,7 +2710,19 @@ async function init() {
   const params = new URLSearchParams(window.location.search);
   const type = params.get('type');
   const requestId = params.get('requestId');
-  const data = params.get('data') ? JSON.parse(params.get('data')) : null;
+  let data = params.get('data') ? JSON.parse(params.get('data')) : null;
+
+  // Полные данные подтверждения SW кладёт в session storage — читаем оттуда
+  // (в URL-параметре большая транзакция может обрезаться/битьё), и держим
+  // service worker живым открытым портом на всё время окна подтверждения.
+  if (requestId && (type === 'transaction' || type === 'connect')) {
+    try { window.__keepalivePort = chrome.runtime.connect({ name: 'approval-keepalive' }); } catch (e) {}
+    try {
+      const k = 'pending_approval_' + requestId;
+      const st = await chrome.storage.session.get(k);
+      if (st && st[k] && st[k].data) data = st[k].data;
+    } catch (e) { console.warn('[Approval] session read failed:', e.message); }
+  }
 
   if (type === 'connect' && requestId) {
     state.approvalData = { requestId, ...data };
@@ -4102,7 +4114,6 @@ async function loadBalance() {
     if (el) el.textContent = orgon;
     updatePriceDisplay();
 
-    console.log('[Balance]', orgon, 'ORGON (raw:', raw, ')');
   } catch (e) {
     console.warn('[Balance] load failed:', e.message, e.stack?.slice(0,200));
   }
@@ -4844,6 +4855,7 @@ async function loadTokenBalances() {
   // Обновляем балансы сохранённых токенов через balanceOf
   let updated = false;
   for (const token of state.orc20Tokens) {
+    if (!state.address?.base58) break;   // адрес мог пропасть (лок/смена аккаунта) — не падаем
     try {
       const balance = await sendToSW('trx.getORC20Balance', {
         contractAddress: token.contract,
@@ -4851,7 +4863,6 @@ async function loadTokenBalances() {
       });
       const rawNum = Number(balance ?? '0');
       const newFloat = rawNum / Math.pow(10, token.decimals ?? 6);
-      console.log('[Token balance]', token.symbol, rawNum, '→', newFloat);
       if (token.balanceFloat !== newFloat) {
         token.rawBalance   = String(rawNum);
         token.balanceFloat = newFloat;
@@ -5456,15 +5467,27 @@ function showTxApproval(data) {
   const tx = data?.transaction ?? {};
   const details = document.getElementById('tx-approval-details');
   if (details) {
+    const c = tx.raw_data?.contract?.[0];
+    const ctype = c?.type ?? 'TransferContract';
+    const val = c?.parameter?.value ?? {};
+    const isCall = ctype === 'TriggerSmartContract';
+    const typeLabel = isCall ? 'Вызов контракта'
+                    : ctype === 'TransferContract' ? 'Перевод ORGON'
+                    : ctype;
+    const sun = Number((isCall ? val.call_value : val.amount) ?? 0) / 1e6;
+    const extra = (isCall && val.contract_address)
+      ? `<div class="fee-row"><span class="muted">Контракт</span><span class="mono fs11 truncate" style="max-width:150px;">${val.contract_address}</span></div>`
+      : '';
     details.innerHTML = `
       <div class="label mb10">Детали транзакции</div>
-      <div class="fee-row"><span class="muted">Тип</span><span class="fs12">${tx.raw_data?.contract?.[0]?.type ?? 'TransferContract'}</span></div>
-      <div class="fee-row"><span class="muted">Сумма</span><span class="mono fs12 accent">${((tx.raw_data?.contract?.[0]?.parameter?.value?.amount ?? 0) / 1e6).toFixed(6)} ORGON</span></div>
+      <div class="fee-row"><span class="muted">Тип</span><span class="fs12">${typeLabel}</span></div>
+      ${extra}
+      <div class="fee-row"><span class="muted">${isCall ? 'Прикреплено к вызову' : 'Сумма'}</span><span class="mono fs12 accent">${sun.toFixed(6)} ORGON</span></div>
       <div class="fee-row" style="border:none;"><span class="muted">ID</span><span class="mono fs11 truncate" style="max-width:140px;">${tx.txID?.slice(0,16) ?? '—'}...</span></div>`;
   }
 
-  const feeEl = document.getElementById('tx-fee-limit');
-  if (feeEl) feeEl.textContent = ((tx.raw_data?.fee_limit ?? 150000000) / 1e6).toFixed(1) + ' ORGON';
+  const feeInput = document.getElementById('tx-fee-limit-input');
+  if (feeInput) feeInput.value = tx.raw_data?.fee_limit != null ? Math.round(tx.raw_data.fee_limit / 1e6) : 150;
 
   showScreen('screen-tx-approval');
 }
@@ -5487,7 +5510,9 @@ async function approveTx() {
   if (btn) { btn.disabled = true; btn.textContent = 'Подтверждение...'; }
 
   try {
-    await sendToSW('__internal.approveRequest', { requestId, approved: true });
+    const _flInput = document.getElementById('tx-fee-limit-input');
+    const _flSun = _flInput && _flInput.value ? Math.max(1, Math.round(Number(_flInput.value))) * 1000000 : undefined;
+    await sendToSW('__internal.approveRequest', { requestId, approved: true, feeLimit: _flSun });
     console.log('[Approval] approved successfully');
     window.close();
   } catch (e) {
