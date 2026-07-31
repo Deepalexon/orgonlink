@@ -89,6 +89,8 @@
     hi: { "Вызов контракта": "कॉन्ट्रैक्ट कॉल", "Отправляется": "भेजा जा रहा", "Контракт": "कॉन्ट्रैक्ट", "Прикреплено к вызову": "कॉल के साथ संलग्न" }
   };
   for (var k in EXTRA_DAPP) { if (DICT[k]) { for (var kk in EXTRA_DAPP[k]) DICT[k][kk] = EXTRA_DAPP[k][kk]; } }
+  var EXTRA_NOTE = { en: { "Заметка": "Note" }, fr: { "Заметка": "Note" }, es: { "Заметка": "Nota" }, pt: { "Заметка": "Nota" }, it: { "Заметка": "Nota" }, zh: { "Заметка": "备注" }, ja: { "Заметка": "メモ" }, vi: { "Заметка": "Ghi chú" }, ko: { "Заметка": "메모" }, hi: { "Заметка": "नोट" } };
+  for (var k in EXTRA_NOTE) { if (DICT[k]) { for (var kk in EXTRA_NOTE[k]) DICT[k][kk] = EXTRA_NOTE[k][kk]; } }
 
   function getLang() {
     try { return localStorage.getItem('orgonlink_lang') || 'ru'; } catch (e) { return 'ru'; }

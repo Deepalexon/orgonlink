@@ -4236,7 +4236,8 @@ async function loadTxHistory() {
       }
 
       return { type: txType, label, addr: addrShort, amount: amountStr,
-               usd: '', date, status: statusStr, txID: tx.txID };
+               usd: '', date, status: statusStr, txID: tx.txID,
+               memo: decodeMemo(tx.raw_data?.data) };
     });
 
     if (state.walletTab === 'history') showWalletTab('history');
@@ -5390,6 +5391,25 @@ async function revealSeedPhrase() {
   }
 }
 
+// Декодирует memo из raw_data.data (hex → UTF-8). Старые заметки хранились
+// в base64 — если результат похож на base64 печатного текста, раскодируем и его.
+function decodeMemo(hexData) {
+  if (!hexData || typeof hexData !== 'string') return '';
+  try {
+    const m = hexData.match(/.{1,2}/g);
+    if (!m) return '';
+    const bytes = new Uint8Array(m.map(b => parseInt(b, 16)));
+    let text = new TextDecoder('utf-8', { fatal: false }).decode(bytes).trim();
+    if (/^[A-Za-z0-9+/]{4,}={0,2}$/.test(text) && text.length % 4 === 0) {
+      try {
+        const dec = decodeURIComponent(escape(atob(text)));
+        if (dec && /[ -~\u0400-\u04FF]/.test(dec)) text = dec;
+      } catch (_) { /* не base64 — оставляем как есть */ }
+    }
+    return text;
+  } catch (_) { return ''; }
+}
+
 function showTxDetail(tx) {
   state.currentTxID = tx.txID ?? null;  // сохраняем для кнопки эксплорера
   document.getElementById('tx-detail-content').innerHTML = `
@@ -5410,6 +5430,7 @@ function showTxDetail(tx) {
         <div class="fee-row"><span class="muted">Адрес</span><span class="mono fs11 truncate" style="max-width:160px;">${tx.addr}</span></div>
         <div class="fee-row"><span class="muted">Дата</span><span class="fs12">${tx.date}</span></div>
         <div class="fee-row"><span class="muted">Комиссия</span><span class="fs12">${tx.fee ? (tx.fee/1e6).toFixed(6)+' ORGON' : '0.1 ORGON'}</span></div>
+        ${tx.memo ? `<div class="fee-row"><span class="muted">Заметка</span><span class="fs12" style="max-width:190px;text-align:right;word-break:break-word;white-space:normal;">${escapeHtml(tx.memo)}</span></div>` : ''}
         <div class="fee-row" style="border:none;padding-top:8px;">
           <span class="muted">TX ID</span>
           <span class="mono" style="font-size:10px;color:var(--text3);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${tx.txID ? tx.txID.slice(0,20)+'...' : '—'}</span>
