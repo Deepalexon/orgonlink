@@ -4373,6 +4373,7 @@ async function sendTransaction() {
       // Мультиподписной аккаунт: создаём pending-транзакцию и сразу ставим свою подпись
       const created = await sendToSW('wallet.multisigCreateTransfer', {
         to, amount: amountSun,
+        memo,
         expirationMinutes: readExpireMinutes('send-expire-min'),
       });
       const hash = created?.hash;
