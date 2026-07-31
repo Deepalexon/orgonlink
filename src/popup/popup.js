@@ -5000,6 +5000,7 @@ function openSendToken(token) {
   document.getElementById('send-token-to').value     = '';
   document.getElementById('send-token-amount').value = '';
   const stm = document.getElementById('send-token-memo'); if (stm) stm.value = '';
+  const sfl = document.getElementById('send-token-fee-limit'); if (sfl) sfl.value = 150;
   initExpireRow('send-token-expire-row', 'send-token-expire-min');
 
   showScreen('screen-send-token');
@@ -5013,6 +5014,7 @@ async function sendToken() {
   const to     = document.getElementById('send-token-to')?.value?.trim();
   const amount = parseFloat(document.getElementById('send-token-amount')?.value);
   const memo   = document.getElementById('send-token-memo')?.value?.trim() || '';
+  const feeLimitSun = Math.max(1, Math.round(Number(document.getElementById('send-token-fee-limit')?.value) || 150)) * 1000000;
 
   if (!to)            { toast('Введите адрес получателя', 'error'); return; }
   if (!to.startsWith('o')) { toast('Неверный адрес Orgon', 'error'); return; }
@@ -5032,6 +5034,7 @@ async function sendToken() {
         to,
         amount: rawAmount,
         memo,
+        feeLimit: feeLimitSun,
         expirationMinutes: readExpireMinutes('send-token-expire-min'),
       });
       const hash = created?.hash;
@@ -5051,6 +5054,7 @@ async function sendToken() {
         to,
         amount: rawAmount,
         memo,
+        feeLimit: feeLimitSun,
       });
       toast('✓ Отправлено {n} {sym}', 'success', {n: amount, sym: token.symbol});
 
