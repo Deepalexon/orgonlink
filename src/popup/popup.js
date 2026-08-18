@@ -2324,6 +2324,7 @@ const state = {
   // Цена
   orgonPriceUsd: null,
   priceChange24h: 0,
+  tokenPricesUsd: {}, // { contractBase58: priceUsd }
 
   // Ресурсы (Energy, Bandwidth, Tron Power)
   resources: null,
@@ -2771,6 +2772,8 @@ async function init() {
       }, 10_000);
       // Загружаем курс ORGON/USDT с Coinstore
       loadOrgonPrice();
+      loadTokenPrices();
+      setInterval(loadTokenPrices, 60_000);
       setInterval(loadOrgonPrice, 60_000);
     } else {
       // Есть ли vault?
@@ -3615,11 +3618,11 @@ function renderAssetsTab() {
         <div class="token-icon orc20">${(t.symbol ?? 'ORC').slice(0, 3)}</div>
         <div class="token-info">
           <div class="token-name">${t.name ?? t.symbol}</div>
-          <div class="token-sub">${(t.contract ?? '').slice(0,8)}...${(t.contract ?? '').slice(-4)}</div>
+          <div class="token-sub">${state.tokenPricesUsd?.[t.contract] != null ? '$' + state.tokenPricesUsd[t.contract] + ' · ' : ''}${(t.contract ?? '').slice(0,8)}...${(t.contract ?? '').slice(-4)}</div>
         </div>
         <div class="token-right">
           <div class="token-amount">${(t.balanceFloat ?? 0).toFixed(6)}</div>
-          <div class="token-usd">${t.symbol}</div>
+          <div class="token-usd">${state.tokenPricesUsd?.[t.contract] != null ? '$' + ((t.balanceFloat ?? 0) * state.tokenPricesUsd[t.contract]).toFixed(2) : t.symbol}</div>
         </div>
       </div>`).join('')
     : `<div class="p16 text-center muted fs12" style="padding:24px 16px;">
@@ -4029,6 +4032,33 @@ async function loadOrgonPrice() {
       updatePriceDisplay();
     }
   } catch (e) { /* цена недоступна — оставляем прежнее значение */ }
+}
+
+// ═══════════════════════════════════════════════════
+//  TOKEN PRICE LOADING — Blazarex public API
+// ═══════════════════════════════════════════════════
+// Источники цен для oRC-20 токенов: контракт (base58) → пара на Blazarex.
+const TOKEN_PRICE_SOURCES = [
+  { contract: 'oRsQdRyQ8Vxkm5rR3DwMy4Db4YibVW33dQ', pair: 'F2CST_LUSD' }, // F2CST
+];
+
+async function loadTokenPrices() {
+  let changed = false;
+  for (const src of TOKEN_PRICE_SOURCES) {
+    try {
+      const url = 'https://public-api.blazarex.com/api/tickers?currencyPairCode=' + src.pair;
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if (!res.ok) continue;
+      const data = await res.json();
+      // Blazarex: { price, askPrice, bidPrice, ... } — берём askPrice если > 0, иначе price
+      const price = parseFloat(data.askPrice > 0 ? data.askPrice : data.price) || 0;
+      if (price > 0 && state.tokenPricesUsd[src.contract] !== price) {
+        state.tokenPricesUsd[src.contract] = price;
+        changed = true;
+      }
+    } catch (_) { /* цена токена недоступна — пропускаем */ }
+  }
+  if (changed && state.walletTab === 'assets') showWalletTab('assets');
 }
 
 function updatePriceDisplay() {
