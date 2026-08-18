@@ -2760,6 +2760,15 @@ async function init() {
       await loadSavedTokens();
       await loadAccounts();
       try { const nf = await chrome.storage.local.get('orgonlink_notify'); state.notifyEnabled = nf.orgonlink_notify !== false; } catch {}
+      // Восстанавливаем кешированные цены — чтобы показать сразу, без ожидания сети
+      try {
+        const pc = await chrome.storage.local.get(['orgonlink_price_orgon', 'orgonlink_price_tokens']);
+        if (Number(pc.orgonlink_price_orgon) > 0) state.orgonPriceUsd = Number(pc.orgonlink_price_orgon);
+        if (pc.orgonlink_price_tokens && typeof pc.orgonlink_price_tokens === 'object') state.tokenPricesUsd = pc.orgonlink_price_tokens;
+      } catch {}
+      // Свежие цены запускаем сразу (обновят экран при готовности)
+      loadOrgonPrice();
+      loadTokenPrices();
       showWalletTab('assets');
       loadBalance();
       loadMultisigStatus();
@@ -2770,9 +2779,7 @@ async function init() {
       setInterval(() => {
         if (state.currentScreen === 'screen-wallet') loadBalance();
       }, 10_000);
-      // Загружаем курс ORGON/USDT с Coinstore
-      loadOrgonPrice();
-      loadTokenPrices();
+      // Периодическое обновление цен
       setInterval(loadTokenPrices, 60_000);
       setInterval(loadOrgonPrice, 60_000);
     } else {
@@ -4030,6 +4037,7 @@ async function loadOrgonPrice() {
     if (price > 0) {
       state.orgonPriceUsd = price;
       updatePriceDisplay();
+      try { chrome.storage.local.set({ orgonlink_price_orgon: price }); } catch (_) {}
     }
   } catch (e) { /* цена недоступна — оставляем прежнее значение */ }
 }
@@ -4058,7 +4066,10 @@ async function loadTokenPrices() {
       }
     } catch (_) { /* цена токена недоступна — пропускаем */ }
   }
-  if (changed && state.walletTab === 'assets') showWalletTab('assets');
+  if (changed) {
+    try { chrome.storage.local.set({ orgonlink_price_tokens: state.tokenPricesUsd }); } catch (_) {}
+    if (state.walletTab === 'assets') showWalletTab('assets');
+  }
 }
 
 function updatePriceDisplay() {
