@@ -2769,7 +2769,7 @@ async function init() {
       setInterval(() => {
         if (state.currentScreen === 'screen-wallet') loadBalance();
       }, 10_000);
-      // Загружаем курс ORGON/USDT с Blazarex
+      // Загружаем курс ORGON/USDT с Coinstore
       loadOrgonPrice();
       setInterval(loadOrgonPrice, 60_000);
     } else {
@@ -3642,10 +3642,6 @@ function renderAssetsTab() {
       <div id="ms-badge" style="display:${state.multisigInfo?.isMultisig ? 'inline-flex' : 'none'};align-items:center;gap:4px;margin:0 auto 8px;padding:3px 11px;background:rgba(124,77,255,.12);color:#7c4dff;border-radius:999px;font-size:11px;font-weight:700;cursor:pointer;">🔐 Мультисиг</div>
       <div class="balance-amount" id="balance-display">${state.isLoading ? '...' : orgon}</div>
       <div class="balance-usd">≈ $${usd} USD</div>
-      <div class="balance-change up" style="margin: 8px auto 12px; display:inline-flex;">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"/></svg>
-        +0.00%
-      </div>
       <div class="address-chip" id="tab-copy-addr">
         <div class="address-avatar"></div>
         <span class="address-text">${addrShort}</span>
@@ -4008,28 +4004,31 @@ function renderSettingsTab() {
 // ═══════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════
-//  PRICE LOADING — Blazarex public API
+//  PRICE LOADING — Coinstore public API
 // ═══════════════════════════════════════════════════
 async function loadOrgonPrice() {
-  // Blazarex Public API — точный эндпоинт
-  // Формат: { price: 0.0006, askPrice: 0.00056, bidPrice: 0.0, ... }
-  const url = 'https://public-api.blazarex.com/api/tickers?currencyPairCode=ORGON_USDT';
+  // Coinstore ticker/price — эндпоинт цены ORGON/USDT
+  // Ожидаемый формат: { code:"0", data:[{ symbol:"ORGONUSDT", price:"0.xxxx" }] }
+  const url = 'https://api.coinstore.com/api/v1/ticker/price;symbol=ORGONUSDT';
   try {
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    console.log('[Price] Blazarex:', JSON.stringify(data));
+    // Устойчивый разбор: data может быть массивом или объектом
+    let price = 0;
+    const d = (data && data.data != null) ? data.data : data;
+    if (Array.isArray(d)) {
+      const item = d.find(x => (x.symbol || x.symbolCode) === 'ORGONUSDT') || d[0];
+      price = item ? parseFloat(item.price ?? item.p ?? item.close) : 0;
+    } else if (d && (d.price != null || d.p != null || d.close != null)) {
+      price = parseFloat(d.price ?? d.p ?? d.close);
+    }
 
-    // Используем askPrice если > 0, иначе price
-    const price = parseFloat(data.askPrice > 0 ? data.askPrice : data.price) || 0;
     if (price > 0) {
       state.orgonPriceUsd = price;
-      state.priceChange24h = parseFloat(data.priceChangePercentage24h) || 0;
       updatePriceDisplay();
     }
-  } catch (e) {
-    console.warn('[Price] Blazarex failed:', e.message);
-  }
+  } catch (e) { /* цена недоступна — оставляем прежнее значение */ }
 }
 
 function updatePriceDisplay() {
@@ -4039,10 +4038,6 @@ function updatePriceDisplay() {
   const usdVal = (price !== null && price !== undefined && !isNaN(price))
     ? (orgon * price).toFixed(2)
     : '0.00';
-  const change = state.priceChange24h ?? 0;
-  const changeStr = (change >= 0 ? '+' : '') + change.toFixed(2) + '%';
-  const changeClass = change >= 0 ? 'up' : 'down';
-
   // Баланс цифрами вверху
   const balEl = document.getElementById('balance-display');
   if (balEl) balEl.textContent = orgonStr;
@@ -4051,14 +4046,9 @@ function updatePriceDisplay() {
   const usdEl = document.querySelector('.balance-usd');
   if (usdEl) usdEl.textContent = `≈ $${usdVal} USD`;
 
-  // Индикатор изменения за 24ч
+  // Индикатор изменения за 24ч убран — эндпоинт ticker/price его не отдаёт
   const changeEl = document.querySelector('.balance-change');
-  if (changeEl) {
-    changeEl.className = `balance-change ${changeClass}`;
-    changeEl.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${
-      change >= 0 ? '<polyline points="18 15 12 9 6 15"/>' : '<polyline points="6 9 12 15 18 9"/>'
-    }</svg> ${changeStr}`;
-  }
+  if (changeEl) changeEl.style.display = 'none';
 
   // Строка токена ORGON — сумма
   const tokenAmountEl = document.querySelector('.token-amount.accent');
@@ -5484,10 +5474,41 @@ async function rejectApproval() {
   window.close();
 }
 
+// Распознаёт вызов approve(address,uint256) и оценивает опасность разрешения.
+function analyzeApproval(tx) {
+  try {
+    const c = tx?.raw_data?.contract?.[0];
+    if (!c || c.type !== 'TriggerSmartContract') return null;
+    let data = (c.parameter?.value?.data || '').replace(/^0x/, '').toLowerCase();
+    // approve(address,uint256) = 0x095ea7b3
+    if (!data.startsWith('095ea7b3') || data.length < 8 + 64 + 64) return null;
+    const amount = BigInt('0x' + data.slice(8 + 64, 8 + 128));
+    return { amount, unlimited: amount >= (2n ** 200n) };
+  } catch (_) { return null; }
+}
+
+function renderApprovalWarning(tx) {
+  const el = document.getElementById('tx-approval-warning');
+  if (!el) return;
+  const base = 'display:block;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.5;margin-bottom:14px;';
+  const appr = analyzeApproval(tx);
+  if (appr && appr.unlimited) {
+    el.style.cssText = base + 'background:rgba(242,96,122,.12);border:1px solid rgba(242,96,122,.5);color:#FF88A0;';
+    el.innerHTML = '⚠️ <b>Неограниченный доступ к токену.</b> Сайт запрашивает право списывать <b>любое</b> количество ваших токенов в любой момент, без нового подтверждения. Это может привести к потере всех средств. Разрешайте только если полностью доверяете сайту.';
+  } else if (appr && appr.amount > 0n) {
+    el.style.cssText = base + 'background:rgba(242,166,90,.1);border:1px solid rgba(242,166,90,.35);color:#F2A65A;';
+    el.innerHTML = 'ℹ️ Сайт запрашивает разрешение (<b>approve</b>) тратить ваши токены. Проверьте сумму и адрес перед подтверждением.';
+  } else if (appr && appr.amount === 0n) {
+    el.style.cssText = base + 'background:rgba(70,229,216,.08);border:1px solid rgba(70,229,216,.3);color:#7CF0E6;';
+    el.innerHTML = 'Отзыв разрешения (approve 0): сайт больше не сможет тратить эти токены.';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
 function showTxApproval(data) {
   // Сохраняем requestId — он нужен для approveRequest в SW
   state.txApprovalData = data;
-  console.log('[Approval] txApprovalData.requestId:', data?.requestId);
   document.getElementById('tx-approval-origin').textContent = data?.origin || '—';
 
   const tx = data?.transaction ?? {};
@@ -5514,6 +5535,8 @@ function showTxApproval(data) {
 
   const feeInput = document.getElementById('tx-fee-limit-input');
   if (feeInput) feeInput.value = tx.raw_data?.fee_limit != null ? Math.round(tx.raw_data.fee_limit / 1e6) : 150;
+
+  renderApprovalWarning(tx);
 
   showScreen('screen-tx-approval');
 }
