@@ -2339,6 +2339,7 @@ const state = {
 
   // Голосование
   witnesses: [],
+  witnessNames: {}, // { witnessAddress: name } из account_name
   myVotes: {},
   currentVotes: [],
   votingReward: 0,
@@ -4547,14 +4548,14 @@ async function loadWitnesses() {
     '<div class="p16 text-center muted loading" style="padding:32px;">Загрузка...</div>';
   try {
     const witnesses = await sendToSW('wallet.listWitnesses');
-    console.log('[Voting] raw witnesses count:', witnesses?.length, 'first:', JSON.stringify(witnesses?.[0]).slice(0, 100));
     state.witnesses = (witnesses ?? [])
       .filter(w => w && w.address)
       .sort((a, b) => (b.voteCount ?? 0) - (a.voteCount ?? 0));
-    console.log('[Voting] filtered witnesses:', state.witnesses.length);
     renderWitnessList(state.witnesses);
     document.getElementById('vote-witness-count').textContent =
       state.witnesses.length + ' валидаторов';
+    // Имена витнесов (account_name) — в фоне, обновят список по готовности
+    loadWitnessNames(state.witnesses.map(w => w.address));
   } catch (e) {
     document.getElementById('witness-list').innerHTML =
       `<div class="p16 text-center muted">Ошибка загрузки: ${e.message}</div>`;
@@ -4602,10 +4603,24 @@ function updateVoteTP() {
   if (bar) bar.style.display = tpUsed > 0 ? 'block' : 'none';
 }
 
+// Подтягивает имена витнесов (account_name) через SW и обновляет список.
+async function loadWitnessNames(addresses) {
+  if (!Array.isArray(addresses) || addresses.length === 0) return;
+  try {
+    const names = await sendToSW('wallet.getWitnessNames', { addresses });
+    if (names && typeof names === 'object') {
+      let any = false;
+      for (const a in names) { if (names[a]) { state.witnessNames[a] = names[a]; any = true; } }
+      if (any) renderWitnessList(state.witnesses);
+    }
+  } catch (_) { /* имена недоступны — остаётся url/адрес */ }
+}
+
 function renderWitnessList(witnesses) {
   const search = document.getElementById('vote-search')?.value?.toLowerCase() ?? '';
   const filtered = search
     ? witnesses.filter(w =>
+        (state.witnessNames?.[w.address] ?? extractWitnessName(w.url ?? w.address) ?? '').toLowerCase().includes(search) ||
         (w.url ?? '').toLowerCase().includes(search) ||
         (w.address ?? '').toLowerCase().includes(search))
     : witnesses;
@@ -4617,7 +4632,7 @@ function renderWitnessList(witnesses) {
   }
 
   document.getElementById('witness-list').innerHTML = filtered.filter(w => w?.address).map((w, i) => {
-    const name    = extractWitnessName(w.url ?? w.address);
+    const name    = state.witnessNames?.[w.address] || extractWitnessName(w.url ?? w.address);
     const votes   = (w.voteCount ?? 0).toLocaleString();
     const produce = w.totalProduced ?? 0;
     const missed  = w.totalMissed ?? 0;
@@ -4650,6 +4665,9 @@ function renderWitnessList(witnesses) {
           overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
           ${name}
           ${isTop27 ? '<span style="font-size:9px;background:var(--accent-dim);color:var(--accent);padding:1px 5px;border-radius:3px;margin-left:4px;">SR</span>' : ''}
+        </div>
+        <div class="mono" style="font-size:10.5px;color:var(--text3);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          ${w.address.slice(0,10)}…${w.address.slice(-6)}
         </div>
         <div style="font-size:11px;color:var(--text2);margin-top:2px;">
           ${votes} голосов · ${rate}% надёжность
