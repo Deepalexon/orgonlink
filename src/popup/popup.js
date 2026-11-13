@@ -5597,6 +5597,15 @@ function showTxApproval(data) {
 
   renderApprovalWarning(tx);
 
+  // Мультиподписной вызов контракта (dApp): транзакция уйдёт на сбор подписей
+  const mwEl = document.getElementById('tx-approval-warning');
+  if (data.multisig && mwEl && mwEl.style.display === 'none') {
+    mwEl.style.cssText = 'display:block;border-radius:12px;padding:12px 14px;font-size:12.5px;line-height:1.5;margin-bottom:14px;background:rgba(0,87,255,.08);border:1px solid rgba(0,87,255,.3);color:var(--accent);';
+    mwEl.innerHTML = '🖊 <b>Мультиподпись.</b> Транзакция будет создана и отправлена на сбор подписей' +
+      (data.permissionId != null ? ' (Permission_id ' + data.permissionId + ')' : '') +
+      '. Она выполнится автоматически, когда наберётся порог.';
+  }
+
   showScreen('screen-tx-approval');
 }
 
